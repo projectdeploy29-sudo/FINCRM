@@ -1,3 +1,6 @@
 from django.contrib import admin
+from .models import Interaction, InteractionAttendee, MessageDraft
 
-# Register your models here.
+admin.site.register(Interaction)
+admin.site.register(InteractionAttendee)
+admin.site.register(MessageDraft)

@@ -15,8 +15,29 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+
+from organizations.views import HierarchyTreeView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/v1/auth/', include('accounts.urls')),
+    path('api/v1/organizations/', include('organizations.urls')),
+    path('api/v1/hierarchy/tree/', HierarchyTreeView.as_view(), name='hierarchy_tree_global'),
+    path('api/v1/staff/', include('employes.urls')),
+    path('api/v1/', include('permitions.urls')),
+    path('api/v1/', include('leads.urls')),
+    path('api/v1/', include('customers.urls')),
+    path('api/v1/communications/', include('communications.urls')),
+    path('api/v1/subscriptions/', include('subscriptions.urls')),
+    path('api/v1/', include('applications.urls')),
+    path('api/v1/documents/', include('documents.urls')),
+    path('api/v1/finance/', include('finance.urls')),
+    path('api/v1/', include('tasks.urls')),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
