@@ -36,7 +36,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
             return Customer.objects.none()
 
         qs = Customer.objects.filter(organization=org).select_related(
-            'created_by__user'
+            'created_by__user', 'assigned_to__user'
         ).prefetch_related('tags')
         department=self.request.query_params.get('department'); team=self.request.query_params.get('team')
         if department: qs=qs.filter(Q(created_by__department_id=department)|Q(assigned_to__department_id=department))
@@ -44,11 +44,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
         role=get_user_role_context(self.request.user,self.request); level=role['hierarchy_level']; user=self.request.user
         if level<90:
             employee=getattr(user,'employee',None)
-            if role['role_code']=='sales_analyst' and employee:
-                qs=qs.filter(Q(created_by=employee)|Q(assigned_to=employee)|Q(converted_from_leads__assigned_sales_analyst=employee)).distinct()
-            elif role['role_code'] in ('doc_officer','document_verification_officer') and employee:
-                qs=qs.filter(Q(assigned_to=employee)|Q(converted_from_leads__assigned_doc_officer=employee)).distinct()
-            elif level>=70:
+            if level>=70:
                 manager=user.manager_set.first() if hasattr(user,'manager_set') else None
                 departments=manager.managed_departments.all() if manager else []
                 qs=qs.filter(Q(created_by__department__in=departments)|Q(assigned_to__department__in=departments)).distinct()
@@ -56,7 +52,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 profile=user.teamlead_profiles.first() if hasattr(user,'teamlead_profiles') else None
                 teams=profile.teams.all() if profile else []
                 qs=qs.filter(Q(created_by__team__in=teams)|Q(assigned_to__team__in=teams)).distinct()
-            elif employee: qs=qs.filter(Q(created_by=employee)|Q(assigned_to=employee)).distinct()
+            elif employee: qs=qs.filter(assigned_to=employee)
             else: qs=qs.none()
 
         # Filter by tag if requested

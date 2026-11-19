@@ -36,7 +36,7 @@ export function createApi(token, onUnauthorized = () => {}, activeRole = '') {
     const result = await response.json().catch(() => ({}))
     if (!response.ok) {
       const detail = result.detail || Object.entries(result).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`).join(' · ') || `Request failed (${response.status})`
-      throw new Error(detail)
+      throw new Error(`Request failed (${response.status}) for ${options.method || 'GET'} ${url(path)}${detail ? `: ${detail}` : ''}`)
     }
     return result
   }

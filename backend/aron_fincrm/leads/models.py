@@ -58,6 +58,14 @@ class Lead(models.Model):
         'customers.Customer', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='converted_from_leads',
     )
+    customer = models.ForeignKey(
+        'customers.Customer', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='leads',
+    )
+    application = models.OneToOneField(
+        'applications.FinancialApplication', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='lead_record',
+    )
 
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.OTHER)
     priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)

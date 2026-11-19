@@ -149,7 +149,7 @@ class Stage2HierarchyAndStaffTests(TestCase):
         tl_token = tl_login.json()['access']
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {tl_token}')
 
-        analyst_role = Role.objects.get(code='finance_analyst')
+        employee_role = Role.objects.get(code='general_employee')
         emp_res = self.client.post(
             reverse('staff_onboard'),
             {
@@ -162,7 +162,7 @@ class Stage2HierarchyAndStaffTests(TestCase):
                 "code": "EMP001",
                 "department_id": str(dept.id),
                 "team_id": str(team.id),
-                "role_id": str(analyst_role.id),
+                "role_id": str(employee_role.id),
                 "designation": "Credit Analyst",
             },
             format='json'
@@ -240,4 +240,4 @@ class Stage2HierarchyAndStaffTests(TestCase):
         self.assertTrue(curr_data['has_active_subscription'])
         self.assertEqual(curr_data['plan_details']['code'], 'growth')
         self.assertIn('usage', curr_data)
-        self.assertEqual(curr_data['usage']['max_staff_allowed'], 25)
+        self.assertEqual(curr_data['usage']['max_staff_allowed'], 200)

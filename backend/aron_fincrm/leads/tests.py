@@ -152,7 +152,7 @@ class Stage3CRMCoreTests(TestCase):
             state="Rajasthan",
             source="walk_in",
             priority="HIGH",
-            status="contacted",
+            status="qualified",
             assigned_to=self.employee,
         )
 

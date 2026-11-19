@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 from communications.models import Interaction, InteractionAttendee, MessageDraft
-from organizations.tenant import get_user_organization
+from organizations.tenant import get_user_organization, get_user_role_context
 
 
 class InteractionAttendeeSerializer(serializers.ModelSerializer):
@@ -27,6 +27,7 @@ class InteractionAttendeeSerializer(serializers.ModelSerializer):
 
 
 class InteractionSerializer(serializers.ModelSerializer):
+    occurred_at = serializers.DateTimeField(required=False, default=timezone.now)
     customer_name = serializers.CharField(source='customer.full_name', read_only=True)
     lead_name = serializers.CharField(source='lead.contact_name', read_only=True)
     employee_name = serializers.SerializerMethodField(read_only=True)
@@ -77,6 +78,23 @@ class InteractionSerializer(serializers.ModelSerializer):
             if obj and (not org or obj.organization_id!=org.id): raise serializers.ValidationError({field:'Choose a record in your organization.'})
         app=attrs.get('application',getattr(instance,'application',None)); customer=attrs.get('customer',getattr(instance,'customer',None))
         if app and customer and app.customer_id!=customer.id: raise serializers.ValidationError({'customer':'Customer must match the application customer.'})
+        if not any((attrs.get(key,getattr(instance,key,None)) for key in ('customer','lead','application'))):
+            raise serializers.ValidationError('Link the interaction to a customer, lead, or application.')
+        role=get_user_role_context(req.user,req); level=role['hierarchy_level']; employee=getattr(req.user,'employee',None)
+        for key,target in (('customer',attrs.get('customer',getattr(instance,'customer',None))),('lead',attrs.get('lead',getattr(instance,'lead',None))),('application',app)):
+            if not target: continue
+            owner=target.assigned_to if key in ('customer','lead') else target.assigned_employee
+            if level<50 and (not employee or owner!=employee): raise serializers.ValidationError({key:'This record must be assigned to you.'})
+            if 50<=level<70:
+                profile=req.user.teamlead_profiles.first() if hasattr(req.user,'teamlead_profiles') else None
+                if not profile or not owner or not profile.teams.filter(pk=owner.team_id).exists(): raise serializers.ValidationError({key:'This record must belong to a team you lead.'})
+            if 70<=level<90:
+                manager=req.user.manager_set.first() if hasattr(req.user,'manager_set') else None
+                if not manager or not owner or not manager.managed_departments.filter(pk=owner.department_id).exists(): raise serializers.ValidationError({key:'This record must belong to a department you manage.'})
+        performer=attrs.get('employee',getattr(instance,'employee',None))
+        if performer and performer.organization_id!=org.id: raise serializers.ValidationError({'employee':'Employee must belong to your organization.'})
+        if level<50 and performer and performer!=employee: raise serializers.ValidationError({'employee':'Employees may only record their own interactions.'})
+        if not performer and employee: attrs['employee']=employee
         return attrs
 
     def create(self, validated_data):

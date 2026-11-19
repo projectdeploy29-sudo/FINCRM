@@ -71,36 +71,6 @@ class IsEmployee(BasePermission):
         return role_ctx['hierarchy_level'] >= 30
 
 
-class IsDocumentVerificationOfficer(BasePermission):
-    """
-    Allows access to Document Verification Officers, Managers, Org Admins, and Superusers.
-    """
-    def has_permission(self, request, view):
-        if not (request.user and request.user.is_authenticated):
-            return False
-        if request.user.is_superuser:
-            return True
-        role_ctx = get_user_role_context(request.user, request)
-        if role_ctx['hierarchy_level'] >= 70:
-            return True
-        return role_ctx['role_code'] in ['doc_officer', 'document_verification_officer']
-
-
-class IsFinanceAnalyst(BasePermission):
-    """
-    Allows access to Finance Analysts, Managers, Org Admins, and Superusers.
-    """
-    def has_permission(self, request, view):
-        if not (request.user and request.user.is_authenticated):
-            return False
-        if request.user.is_superuser:
-            return True
-        role_ctx = get_user_role_context(request.user, request)
-        if role_ctx['hierarchy_level'] >= 70:
-            return True
-        return role_ctx['role_code'] in ['finance_analyst', 'financial_analyst', 'sales_analyst']
-
-
 def has_permission_codename(user, codename):
     """
     Helper to check if a user has a specific permission codename.

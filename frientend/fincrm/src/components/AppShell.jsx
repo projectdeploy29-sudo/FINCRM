@@ -1,34 +1,52 @@
-const FOLLOWUP_IDS = new Set(['customer-followups', 'lead-followups', 'application-followups'])
-const TODAY_IDS = new Set(['today'])
-const WORK_EXCLUDE = new Set(['dashboard', 'tasks', 'followups-today', ...FOLLOWUP_IDS, ...TODAY_IDS])
+const navItems = [
+  ['dashboard', 'Dashboard'], ['tasks', 'Send'], ['followups', 'Follow-ups'], ['interactions', 'Conversations'],
+  ['today', 'Today'], ['pipeline', 'Pipeline'], ['reports', 'Report'], ['settings', 'Settings'],
+  ['plans', 'Plans'],
+]
+const recordItems = [
+  ['managers', 'Manager'], ['team-leads', 'Team Lead'], ['departments', 'Department'], ['teams', 'Team'],
+  ['employees', 'Employee'], ['customers', 'Customer'], ['leads', 'Lead'], ['applications', 'Application'],
+]
 
-export default function AppShell({ user, modules, addActions = [], activeModule, onNavigate, onCreateModule, onRoleChange, onSignOut, children }) {
+export default function AppShell({ user, modules, activeModule, dateRange, onDateRangeChange, onNavigate, onRoleChange, onSignOut, children }) {
   const roleChoices = user?.available_roles || []
-  const grouped = {
-    Work: modules.filter((module) => !WORK_EXCLUDE.has(module.id)),
-    Add: addActions,
-    Dashboard: modules.filter((module) => module.id === 'dashboard'),
-    Send: modules.filter((module) => module.id === 'tasks'),
-    'Follow-up': modules.filter((module) => FOLLOWUP_IDS.has(module.id)),
-    Today: modules.filter((module) => TODAY_IDS.has(module.id)),
-  }
-  return <main>
-    <header>
-      <h1>FinCRM</h1>
-      <p>{user?.organization?.name || 'Finance CRM'} · {user?.role?.name || 'User'}</p>
-      <p>{user?.username || user?.user?.username || ''}</p>
-      {roleChoices.length > 1 && <label>Use role <select value={user?.role?.code || ''} onChange={(event) => onRoleChange(event.target.value)}>
+  const roleLevel = user?.role?.hierarchy_level || 0
+  const isLeadPortal = user?.role?.code === 'lead_portal'
+  const showDateFilter = !isLeadPortal && ['dashboard', 'pipeline', 'reports'].includes(activeModule)
+  const available = new Set(modules.map((module) => module.id))
+  const coreItems = navItems.filter(([id]) => {
+    if (isLeadPortal) return id === 'dashboard'
+    if (id === 'plans') return (user?.role?.hierarchy_level || 0) >= 90
+    if (id === 'followups') return (user?.role?.hierarchy_level || 0) >= 30
+    if (id === 'tasks') return roleLevel >= 30
+    return id === 'pipeline' || id === 'reports' || id === 'settings' || available.has(id)
+  })
+  const records = isLeadPortal ? [] : recordItems.filter(([id]) => available.has(id))
+  const items = [...coreItems.slice(0, 1), ...records, ...coreItems.slice(1)]
+  return <main className="app-layout">
+    <aside className="app-sidebar">
+      <div className="brand">FIN<span>CRM</span></div>
+      <p className="org-name">{user?.organization?.name || 'Finance CRM'}</p>
+      {roleChoices.length > 1 && <label className="role-picker">Role<select value={user?.role?.code || ''} onChange={(event) => onRoleChange(event.target.value)}>
         {roleChoices.map((role) => <option key={role.code} value={role.code}>{role.name}</option>)}
       </select></label>}
-      <button type="button" onClick={onSignOut}>Sign out</button>
-    </header>
-    <nav aria-label="Main navigation">
-      {Object.entries(grouped).filter(([, items]) => items.length).map(([label, items]) => <details key={label} open={label === 'Work' || label === 'Dashboard'}>
-        <summary>{label}</summary>
-        {label === 'Add' ? items.map(([id, title, staffType]) => <button type="button" key={`create-${id}-${staffType || ''}`} onClick={() => onCreateModule(id, staffType)}>{`Add ${title}`}</button>) : items.map((module) => <button type="button" key={module.id} aria-current={activeModule === module.id ? 'page' : undefined} onClick={() => onNavigate(module.id)}>{module.label}</button>)}
-        {label === 'Send' && items.map((module) => <button type="button" key={`create-${module.id}`} onClick={() => onCreateModule(module.id)}>Create and assign task</button>)}
-      </details>)}
-    </nav>
-    <section>{children}</section>
+      <nav aria-label="Main navigation" className="main-nav">
+        {coreItems.slice(0, 1).map(([id, label]) => <button type="button" key={id} className={activeModule === id ? 'active' : ''} aria-current={activeModule === id ? 'page' : undefined} onClick={() => onNavigate(id)}>{label}</button>)}
+        {records.length > 0 && <details className="records-nav" open>
+          <summary>Records</summary>
+          {records.map(([id, label]) => <button type="button" key={id} className={activeModule === id ? 'active' : ''} aria-current={activeModule === id ? 'page' : undefined} onClick={() => onNavigate(id)}>{label}</button>)}
+        </details>}
+        {coreItems.slice(1).map(([id, label]) => <button type="button" key={id} className={activeModule === id ? 'active' : ''} aria-current={activeModule === id ? 'page' : undefined} onClick={() => onNavigate(id)}>{label}</button>)}
+      </nav>
+      <div className="sidebar-bottom"><span>{user?.user?.username || user?.username || ''}</span><button type="button" onClick={onSignOut}>Sign out</button></div>
+    </aside>
+    <section className="app-content">
+      {showDateFilter && <div className="global-date-filter"><label htmlFor="global-date-preset">Date range</label><select id="global-date-preset" value={dateRange?.preset || 'today'} onChange={(event) => onDateRangeChange(event.target.value)}>
+        <option value="today">Today</option><option value="month">Month to date</option><option value="year">Year to date</option><option value="custom">Custom range</option>
+      </select>
+      {dateRange?.preset === 'custom' && <><label htmlFor="global-date-start">From</label><input id="global-date-start" type="date" value={dateRange.start_date} onChange={(event) => onDateRangeChange('custom', 'start_date', event.target.value)} /><label htmlFor="global-date-end">To</label><input id="global-date-end" type="date" value={dateRange.end_date} min={dateRange.start_date || undefined} onChange={(event) => onDateRangeChange('custom', 'end_date', event.target.value)} /></>}
+      </div>}
+      {children}
+    </section>
   </main>
 }

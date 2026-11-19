@@ -1,23 +1,54 @@
+from decimal import Decimal
 from rest_framework import serializers
 from applications.models import FinancialApplication, ApplicationStatusHistory, ApplicationChecklist
+from employes.models import Employee
 from organizations.tenant import get_user_organization, get_user_role_context
 
 class FinancialApplicationSerializer(serializers.ModelSerializer):
+    application_code = serializers.CharField(required=False, allow_blank=True)
+    requested_amount = serializers.DecimalField(max_digits=15, decimal_places=2, required=True, min_value=Decimal('0.01'))
+    assigned_employee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all(), required=True)
+    follow_up_at = serializers.DateTimeField(required=True)
+    customer_name = serializers.SerializerMethodField(read_only=True)
+    lead_name = serializers.SerializerMethodField(read_only=True)
+    assigned_employee_name = serializers.SerializerMethodField(read_only=True)
     class Meta:
         model = FinancialApplication
         fields = '__all__'
-        read_only_fields = ('organization', 'created_by', 'status', 'approved_amount', 'disbursed_amount', 'submitted_at', 'completed_at', 'created_at', 'updated_at')
+        read_only_fields = ('organization', 'created_by', 'status', 'lead', 'approved_amount', 'disbursed_amount', 'submitted_at', 'disbursed_at', 'completed_at', 'created_at', 'updated_at', 'monthly_repayment_amount', 'next_payment_due_date')
+    application_type = serializers.CharField(required=True, allow_blank=False)
     def validate_customer(self, customer):
-        org=get_user_organization(self.context['request'].user, self.context['request'])
+        req=self.context['request']; org=get_user_organization(req.user, req)
         if not org or customer.organization_id != org.id:
             raise serializers.ValidationError('Customer must belong to your organization.')
+        role=get_user_role_context(req.user,req)
+        if role['hierarchy_level']<50:
+            employee=getattr(req.user,'employee',None)
+            if not employee or customer.assigned_to_id!=employee.id:
+                raise serializers.ValidationError('Customer must be assigned to you.')
         return customer
+
+    def get_customer_name(self, obj):
+        return obj.customer.full_name if obj.customer_id else None
+
+    def get_lead_name(self, obj):
+        return obj.lead.contact_name if obj.lead_id else None
+
+    def get_assigned_employee_name(self, obj):
+        if obj.assigned_employee_id and obj.assigned_employee.user:
+            user = obj.assigned_employee.user
+            return user.get_full_name() or user.username
+        return None
     def validate(self,attrs):
         req=self.context['request']; org=get_user_organization(req.user,req); instance=self.instance
         lead=attrs.get('lead',getattr(instance,'lead',None)); employee=attrs.get('assigned_employee',getattr(instance,'assigned_employee',None))
         if lead and (not org or lead.organization_id!=org.id): raise serializers.ValidationError({'lead':'Lead must belong to your organization.'})
         if employee and (not org or employee.organization_id!=org.id): raise serializers.ValidationError({'assigned_employee':'Employee must belong to your organization.'})
         role=get_user_role_context(req.user,req); level=role['hierarchy_level']; user=req.user
+        if lead and level<50:
+            employee=getattr(user,'employee',None)
+            if not employee or lead.assigned_to_id!=employee.id:
+                raise serializers.ValidationError({'lead':'Lead must be assigned to you.'})
         if not instance and 50<=level<90 and not employee:
             raise serializers.ValidationError({'assigned_employee':'Assign the application to an employee in your reporting scope.'})
         if employee and 70<=level<90:
@@ -30,17 +61,10 @@ class FinancialApplicationSerializer(serializers.ModelSerializer):
             own=getattr(user,'employee',None)
             if not own or employee.pk!=own.pk: raise serializers.ValidationError({'assigned_employee':'Employees may only assign applications to themselves.'})
         customer=attrs.get('customer',getattr(instance,'customer',None))
-        if customer and lead and lead.converted_customer_id and lead.converted_customer_id!=customer.id:
-            raise serializers.ValidationError({'lead':'The application customer must match the lead’s converted customer.'})
-        if not instance and org:
-            from subscriptions.models import Subscription
-            from django.utils import timezone
-            subscription=Subscription.objects.filter(organization=org,status__in=['active','trialing']).select_related('plan').order_by('-created_at').first()
-            if subscription and subscription.plan:
-                limit=subscription.plan.max_applications_per_month
-                month=timezone.now().replace(day=1,hour=0,minute=0,second=0,microsecond=0)
-                used=FinancialApplication.objects.filter(organization=org,created_at__gte=month).count()
-                if limit and used>=limit: raise serializers.ValidationError({'subscription':'The monthly application limit for this plan has been reached.'})
+        if customer and lead and lead.customer_id and lead.customer_id!=customer.id:
+            raise serializers.ValidationError({'lead':'The application customer must match the lead customer.'})
+        if lead and lead.application_id and (not instance or lead.application_id!=instance.id):
+            raise serializers.ValidationError({'lead':'This lead is already linked to another application.'})
         return attrs
     def create(self, validated_data):
         req = self.context['request']

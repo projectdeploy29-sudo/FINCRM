@@ -20,9 +20,14 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from organizations.views import HierarchyTreeView
+from tasks.analytics import pipeline, report_summary
+from tasks.views import dashboard
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/v1/dashboards/<str:role>/', dashboard, name='role_dashboard'),
+    path('api/v1/pipeline/', pipeline, name='pipeline'),
+    path('api/v1/reports/summary/', report_summary, name='report_summary'),
     path('api/v1/auth/', include('accounts.urls')),
     path('api/v1/organizations/', include('organizations.urls')),
     path('api/v1/hierarchy/tree/', HierarchyTreeView.as_view(), name='hierarchy_tree_global'),

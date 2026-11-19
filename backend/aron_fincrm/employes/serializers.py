@@ -11,7 +11,7 @@ from permitions.models import Role
 from organizations.tenant import get_user_organization, get_user_role_context
 
 User = get_user_model()
-EMPLOYEE_ROLE_CODES = {'general_employee', 'doc_officer', 'document_verification_officer', 'finance_analyst', 'financial_analyst', 'sales_analyst'}
+EMPLOYEE_ROLE_CODES = {'general_employee'}
 
 
 class EmployeeAssignmentHistorySerializer(serializers.ModelSerializer):
@@ -356,8 +356,8 @@ class StaffOnboardingSerializer(serializers.Serializer):
             raise serializers.ValidationError({"staff_type": "Only Organization Admins can create Managers."})
         elif staff_type == 'team_lead' and level < 70:
             raise serializers.ValidationError({"staff_type": "Only Managers or Admins can create Team Leads."})
-        elif staff_type == 'employee' and level < 30:
-            raise serializers.ValidationError({"staff_type": "Permission denied to onboard employees."})
+        elif staff_type == 'employee' and level < 50:
+            raise serializers.ValidationError({"staff_type": "Only Team Leads, Managers, or Organization Admins can create employees."})
 
         # Managers and team leads can only provision staff inside their own hierarchy.
         if staff_type in ('team_lead', 'employee') and 70 <= level < 90:
@@ -404,7 +404,7 @@ class StaffOnboardingSerializer(serializers.Serializer):
         if active_sub and active_sub.plan:
             max_allowed = active_sub.plan.max_employees
             current_total = Employee.objects.filter(organization=org).count() + Manager.objects.filter(organization=org).count() + TeamLead.objects.filter(organization=org).count()
-            if current_total >= max_allowed:
+            if max_allowed is not None and current_total >= max_allowed:
                 raise serializers.ValidationError({
                     "subscription": f"Plan limit reached! Your current plan allows maximum {max_allowed} staff members. Please upgrade your subscription."
                 })

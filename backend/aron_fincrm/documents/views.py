@@ -4,23 +4,23 @@ from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from organizations.tenant import get_user_organization, get_user_role_context
-from permitions.permissions import IsAuthenticatedTenant, IsEmployee, IsDocumentVerificationOfficer, IsOrgAdmin
+from permitions.permissions import IsAuthenticatedTenant, IsEmployee, IsOrgAdmin, IsManager
 from documents.models import Document, DocumentCategory, DocumentAccessLog
 from documents.serializers import DocumentSerializer, DocumentCategorySerializer
 
 class DocumentCategoryViewSet(viewsets.ModelViewSet):
  serializer_class=DocumentCategorySerializer; permission_classes=[IsAuthenticatedTenant]
  def get_permissions(self):
-  from permitions.permissions import IsOrgAdmin
-  if self.action in ('create','update','partial_update'):return [IsAuthenticatedTenant(),IsDocumentVerificationOfficer()]
+  if self.action in ('create','update','partial_update'):return [IsAuthenticatedTenant(),IsManager()]
   if self.action=='destroy':return [IsAuthenticatedTenant(),IsOrgAdmin()]
   return [IsAuthenticatedTenant()]
  def get_queryset(self):
-  org=get_user_organization(self.request.user,self.request); return DocumentCategory.objects.filter(organization=org) if org else DocumentCategory.objects.none()
+  org=get_user_organization(self.request.user,self.request); qs=DocumentCategory.objects.filter(organization=org) if org else DocumentCategory.objects.none()
+  return qs
 class DocumentViewSet(viewsets.ModelViewSet):
  serializer_class=DocumentSerializer; permission_classes=[IsAuthenticatedTenant]; filterset_fields=['application','customer','category','status']
  def get_permissions(self):
-  if self.action in ('update','partial_update'): return [IsAuthenticatedTenant(),IsDocumentVerificationOfficer()]
+  if self.action in ('update','partial_update'): return [IsAuthenticatedTenant(),IsEmployee()]
   if self.action=='destroy': return [IsAuthenticatedTenant(),IsOrgAdmin()]
   if self.action=='create': return [IsAuthenticatedTenant(),IsEmployee()]
   return [IsAuthenticatedTenant()]
@@ -31,10 +31,6 @@ class DocumentViewSet(viewsets.ModelViewSet):
   from organizations.tenant import get_user_role_context
   ctx=get_user_role_context(self.request.user,self.request); level=ctx['hierarchy_level']; user=self.request.user
   if level>=90:return qs
-  if ctx['role_code'] in ('doc_officer','document_verification_officer'):
-   employee=getattr(user,'employee',None)
-   return qs.filter(application__lead__assigned_doc_officer=employee) if employee else qs.none()
-  if ctx['role_code'] in ('finance_analyst','financial_analyst'):return qs
   if level>=70:
    manager=user.manager_set.first() if hasattr(user,'manager_set') else None
    departments=manager.managed_departments.all() if manager else []
@@ -44,7 +40,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
    teams=profile.teams.all() if profile else []
    return qs.filter(application__assigned_employee__team__in=teams)
   employee=getattr(user,'employee',None)
-  return qs.filter(application__assigned_employee=employee) if employee else qs.none()
+  return qs.filter(Q(application__assigned_employee=employee)|Q(customer__assigned_to=employee)).distinct() if employee else qs.none()
  def perform_create(self,serializer):
   doc=serializer.save(); self._audit(doc,DocumentAccessLog.Action.UPLOAD)
  def perform_update(self,serializer):
@@ -58,9 +54,9 @@ class DocumentViewSet(viewsets.ModelViewSet):
   return FileResponse(document.file.open('rb'),as_attachment=True,filename=document.file_name or 'document')
  @action(detail=True,methods=['post'])
  def review(self,request,pk=None):
-  if not IsDocumentVerificationOfficer().has_permission(request,self):
+  if not IsEmployee().has_permission(request,self):
    from rest_framework.response import Response
-   return Response({'detail':'Document verification officer role required.'},status=403)
+   return Response({'detail':'A staff member assigned to this record is required.'},status=403)
   document=self.get_object(); decision=request.data.get('status')
   if decision not in (Document.Status.ACCEPTED,Document.Status.REJECTED):
    from rest_framework.response import Response

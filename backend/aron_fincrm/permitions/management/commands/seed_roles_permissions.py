@@ -148,8 +148,9 @@ class Command(BaseCommand):
                     "customers:view", "customers:create", "customers:edit", "customers:change_status",
                     "leads:view", "leads:create", "leads:edit", "leads:assign", "leads:convert",
                     "applications:view", "applications:create", "applications:edit",
-                    "documents:view", "documents:upload", "documents:download",
-                    "finance:view_schedules", "finance:record_payment",
+                    "documents:view", "documents:upload", "documents:download", "documents:verify", "documents:reject",
+                    "applications:review", "applications:approve", "applications:disburse", "applications:reject",
+                    "finance:view_schedules", "finance:manage_schedules", "finance:record_payment", "finance:verify_payment",
                     "tasks:view", "tasks:create", "tasks:assign", "tasks:update",
                     "followups:view", "followups:create", "followups:update",
                     "dashboards:teamlead",
@@ -171,44 +172,16 @@ class Command(BaseCommand):
                     "dashboards:employee",
                 ],
             },
-            {
-                "name": "Document Verification Officer",
-                "code": "doc_officer",
-                "description": "Verification of KYC, checklist items, and applicant documents",
-                "is_system_role": True,
-                "permissions": [
-                    "customers:view",
-                    "applications:view", "applications:review",
-                    "documents:view", "documents:upload", "documents:download", "documents:verify", "documents:reject",
-                    "tasks:view", "tasks:update",
-                    "dashboards:employee",
-                ],
-            },
-            {
-                "name": "Finance Analyst",
-                "code": "finance_analyst",
-                "description": "Risk underwriting, loan/insurance application approval, and repayment verification",
-                "is_system_role": True,
-                "permissions": [
-                    "customers:view",
-                    "applications:view", "applications:review", "applications:approve", "applications:disburse",
-                    "finance:view_schedules", "finance:manage_schedules", "finance:record_payment", "finance:verify_payment",
-                    "tasks:view", "tasks:update",
-                    "dashboards:employee",
-                ],
-            },
-            {
-                "name": "Sales Analyst",
-                "code": "sales_analyst",
-                "description": "Sales pipeline, customer follow-ups, payment recording, and revenue reporting",
-                "is_system_role": True,
-                "permissions": [
-                    "customers:view", "leads:view", "leads:create", "applications:view",
-                    "finance:view_schedules", "finance:record_payment", "finance:verify_payment", "tasks:view", "tasks:update",
-                    "followups:view", "followups:create", "followups:update", "dashboards:employee",
-                ],
-            },
         ]
+
+        obsolete_employee_roles = ('doc_officer', 'document_verification_officer', 'finance_analyst', 'financial_analyst', 'sales_analyst')
+        from employes.models import Employee
+        general_employee_role = Role.objects.filter(code='general_employee', organization__isnull=True).first()
+        if general_employee_role:
+            Employee.objects.filter(role__code__in=obsolete_employee_roles).update(role=general_employee_role)
+            for employee in Employee.objects.filter(additional_roles__code__in=obsolete_employee_roles).distinct():
+                employee.additional_roles.remove(*employee.additional_roles.filter(code__in=obsolete_employee_roles))
+        Role.objects.filter(organization__isnull=True, code__in=obsolete_employee_roles).delete()
 
         for role_data in roles_config:
             role_obj, _ = Role.objects.update_or_create(

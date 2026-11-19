@@ -13,6 +13,11 @@ class CustomerTagSerializer(serializers.ModelSerializer):
 
 
 class CustomerSerializer(serializers.ModelSerializer):
+    status = serializers.ChoiceField(
+        choices=Customer.Status.choices,
+        required=False,
+        default=Customer.Status.PROSPECT,
+    )
     customer_code = serializers.CharField(max_length=50, required=False, allow_blank=True)
     tags = serializers.SerializerMethodField(read_only=True)
     tag_list = serializers.ListField(
@@ -21,6 +26,7 @@ class CustomerSerializer(serializers.ModelSerializer):
         required=False,
     )
     created_by_name = serializers.SerializerMethodField(read_only=True)
+    assigned_to_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Customer
@@ -44,11 +50,13 @@ class CustomerSerializer(serializers.ModelSerializer):
             'segment',
             'source',
             'status',
+            'priority',
             'notes',
             'tags',
             'tag_list',
             'created_by',
             'assigned_to',
+            'assigned_to_name',
             'created_by_name',
             'created_at',
             'updated_at',
@@ -62,6 +70,11 @@ class CustomerSerializer(serializers.ModelSerializer):
     def get_created_by_name(self, obj):
         if obj.created_by and obj.created_by.user:
             return obj.created_by.user.get_full_name() or obj.created_by.user.username
+        return None
+
+    def get_assigned_to_name(self, obj):
+        if obj.assigned_to and obj.assigned_to.user:
+            return obj.assigned_to.user.get_full_name() or obj.assigned_to.user.username
         return None
 
     def validate(self,attrs):

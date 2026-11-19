@@ -24,11 +24,11 @@ export default function TodayPage({ api }) {
     try { await api.post(`/tasks/${row.id}/transition/`,{status}); await load() } catch (exception) { setError(exception.message) }
   }
   return <section>
-    <h2>Today: tasks and follow-ups</h2>
+    <h2>Tasks and follow-ups</h2>
     <button type="button" onClick={load} disabled={busy}>Refresh today</button>
     {error && <p role="alert">{error}</p>}
     <h3>Today’s follow-ups</h3>
-    {followups.length ? <table><thead><tr><th>Type</th><th>Record</th><th>Scheduled</th><th>Notes</th><th>Action</th></tr></thead><tbody>{followups.map((row) => <tr key={`${row.kind}-${row.id}`}><td>{row.followup_type}</td><td>{row.kind}: {row.entity_id}</td><td>{new Date(row.scheduled_at).toLocaleString()}</td><td>{row.notes}</td><td><button type="button" onClick={() => completeFollowup(row)}>Mark complete</button></td></tr>)}</tbody></table> : <p>No follow-ups due today.</p>}
+    {followups.length ? <table><thead><tr><th>Type</th><th>Record</th><th>Scheduled</th><th>Notes</th><th>Action</th></tr></thead><tbody>{followups.map((row) => <tr key={`${row.kind}-${row.id}`}><td>{row.followup_type}</td><td>{row.contact_name || row.contact_record_code || row.kind}</td><td>{new Date(row.scheduled_at).toLocaleString()}</td><td>{row.notes}</td><td><button type="button" onClick={() => completeFollowup(row)}>Mark complete</button></td></tr>)}</tbody></table> : <p>No follow-ups due today.</p>}
     <h3>Tasks due today or overdue</h3>
     {tasks.length ? <table><thead><tr><th>Task</th><th>Status</th><th>Due</th><th>Priority</th><th>Action</th></tr></thead><tbody>{tasks.map((row) => <tr key={row.id}><td>{row.title}</td><td>{row.status}</td><td>{row.due_date}</td><td>{row.priority}</td><td>{row.status==='PENDING' ? <button type="button" onClick={() => transitionTask(row,'IN_PROGRESS')}>Start task</button> : row.status==='IN_PROGRESS' ? <button type="button" onClick={() => transitionTask(row,'COMPLETED')}>Complete task</button> : null}</td></tr>)}</tbody></table> : <p>No tasks due today.</p>}
   </section>

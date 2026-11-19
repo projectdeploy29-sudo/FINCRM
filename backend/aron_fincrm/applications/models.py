@@ -8,6 +8,8 @@ class FinancialApplication(models.Model):
         DRAFT = "draft", "Draft"
         SUBMITTED = "submitted", "Submitted"
         UNDER_REVIEW = "under_review", "Under review"
+        QUALIFIED = "qualified", "Qualified for lead conversion"
+        UNQUALIFIED = "unqualified", "Unqualified"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
         DISBURSED = "disbursed", "Disbursed"
@@ -20,6 +22,7 @@ class FinancialApplication(models.Model):
         on_delete=models.CASCADE,
     )
     application_code = models.CharField(max_length=50)
+    application_type = models.CharField(max_length=100, blank=True)
     customer = models.ForeignKey(
         "customers.Customer",
         on_delete=models.PROTECT,
@@ -36,12 +39,15 @@ class FinancialApplication(models.Model):
         null=True,
     )
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SUBMITTED)
     requested_amount = models.DecimalField(
         max_digits=15,
         decimal_places=2,
         null=True,
     )
+    financial_information = models.JSONField(default=dict, blank=True)
+    description = models.TextField(blank=True)
+    follow_up_at = models.DateTimeField(null=True, blank=True)
     approved_amount = models.DecimalField(
         max_digits=15,
         decimal_places=2,
@@ -52,8 +58,13 @@ class FinancialApplication(models.Model):
         decimal_places=2,
         null=True,
     )
+    annual_interest_rate = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
+    loan_tenure_months = models.PositiveIntegerField(null=True, blank=True)
+    monthly_repayment_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    next_payment_due_date = models.DateField(null=True, blank=True)
     currency = models.CharField(max_length=3, default="INR")
     submitted_at = models.DateTimeField(null=True, blank=True)
+    disbursed_at = models.DateTimeField(null=True, blank=True)
     provider_updated_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
@@ -74,6 +85,8 @@ class ApplicationStatusHistory(models.Model):
             DRAFT = "draft", "Draft"
             SUBMITTED = "submitted", "Submitted"
             UNDER_REVIEW = "under_review", "Under review"
+            QUALIFIED = "qualified", "Qualified for lead conversion"
+            UNQUALIFIED = "unqualified", "Unqualified"
             APPROVED = "approved", "Approved"
             REJECTED = "rejected", "Rejected"
             DISBURSED = "disbursed", "Disbursed"

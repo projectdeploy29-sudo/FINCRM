@@ -166,9 +166,10 @@ def get_user_role_context(user, request=None):
     # 4. Check Employee
     if employee:
         from permitions.models import RolePermission
-        role_objects = list(employee.additional_roles.filter(models.Q(organization=org)|models.Q(organization__isnull=True)))
+        role_objects = list(employee.additional_roles.filter(models.Q(organization=org)|models.Q(organization__isnull=True), code='general_employee'))
         if employee.role and employee.role.organization_id in (None, getattr(org,'id',None)) and all(role.id != employee.role_id for role in role_objects):
-            role_objects.insert(0, employee.role)
+            if employee.role.code == 'general_employee':
+                role_objects.insert(0, employee.role)
         role_by_code = {role.code: role for role in role_objects}
         requested_code = request.headers.get('X-Active-Role') if request and hasattr(request, 'headers') else None
         role_obj = role_by_code.get(requested_code) or (employee.role if employee.role and employee.role.organization_id in (None, getattr(org,'id',None)) else None)

@@ -20,10 +20,6 @@ class RepaymentScheduleViewSet(viewsets.ReadOnlyModelViewSet):
         if self.request.query_params.get('overdue')=='true': qs=qs.filter(due_date__lt=timezone.localdate(),status__in=['PENDING','PARTIAL'])
         role=get_user_role_context(self.request.user,self.request); level=role['hierarchy_level']; user=self.request.user
         if level>=90:return qs
-        if role['role_code'] in ('finance_analyst','financial_analyst'):return qs
-        if role['role_code']=='sales_analyst':
-            employee=getattr(user,'employee',None)
-            return qs.filter(application__lead__assigned_sales_analyst=employee) if employee else qs.none()
         if level>=70:
             manager=user.manager_set.first() if hasattr(user,'manager_set') else None; depts=manager.managed_departments.all() if manager else []
             return qs.filter(application__assigned_employee__department__in=depts)
@@ -35,25 +31,36 @@ class RepaymentScheduleViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False,methods=['post'])
     def generate(self,request):
         ctx=get_user_role_context(request.user,request)
-        if ctx['role_code'] not in ('org_admin','manager','super_admin','finance_analyst','financial_analyst','sales_analyst'):
-            return Response({'detail':'Finance analyst, manager, or organization admin role required.'},status=403)
+        if ctx['hierarchy_level']<30:
+            return Response({'detail':'A staff account is required to generate a repayment schedule.'},status=403)
         app_id=request.data.get('application'); start=request.data.get('first_due_date'); amount=request.data.get('amount')
-        try: count=int(request.data.get('installments',1))
-        except (TypeError,ValueError): return Response({'detail':'Installments must be a whole number.'},status=400)
+        raw_count=request.data.get('installments')
         from applications.models import FinancialApplication
-        application_qs=FinancialApplication.objects.filter(id=app_id,organization=get_user_organization(request.user,request),status='approved')
+        application_qs=FinancialApplication.objects.filter(id=app_id,organization=get_user_organization(request.user,request),status='disbursed')
         if ctx['hierarchy_level'] == 70:
             manager=request.user.manager_set.first() if hasattr(request.user,'manager_set') else None
             application_qs=application_qs.filter(assigned_employee__department__in=manager.managed_departments.all()) if manager else application_qs.none()
+        elif 50 <= ctx['hierarchy_level'] < 70:
+            profile=request.user.teamlead_profiles.first()
+            application_qs=application_qs.filter(assigned_employee__team__in=profile.teams.all()) if profile else application_qs.none()
+        elif 30 <= ctx['hierarchy_level'] < 50:
+            employee=getattr(request.user,'employee',None)
+            application_qs=application_qs.filter(assigned_employee=employee) if employee else application_qs.none()
         application=application_qs.first()
-        if not application: return Response({'detail':'Approved application not found.'},status=400)
+        if not application: return Response({'detail':'Disbursed application not found.'},status=400)
+        try: count=int(raw_count or application.loan_tenure_months or 0)
+        except (TypeError,ValueError): return Response({'detail':'Installments must be a whole number.'},status=400)
+        if application.loan_tenure_months and count!=application.loan_tenure_months:
+            return Response({'detail':'Installment count must match the approved loan tenure.'},status=400)
         if not start or count<1 or count>600: return Response({'detail':'Provide a valid first_due_date and 1 to 600 installments.'},status=400)
         from datetime import date
         from decimal import Decimal
-        try: due=date.fromisoformat(start); total=Decimal(str(amount or application.approved_amount or application.requested_amount))
+        try: due=date.fromisoformat(start); total=Decimal(str(application.disbursed_amount if amount in (None,'') else amount))
         except Exception: return Response({'detail':'Invalid date or amount.'},status=400)
         if total<=0:return Response({'detail':'Amount must be greater than zero.'},status=400)
-        rate=request.data.get('annual_interest_rate',0)
+        if application.disbursed_amount is not None and total!=application.disbursed_amount:
+            return Response({'detail':'Repayment schedule principal must match the actual disbursed loan amount.'},status=400)
+        rate=request.data.get('annual_interest_rate',application.annual_interest_rate or 0)
         try: annual_rate=Decimal(str(rate))
         except Exception:return Response({'detail':'annual_interest_rate must be a non-negative number.'},status=400)
         if annual_rate<0 or annual_rate>100:return Response({'detail':'annual_interest_rate must be between 0 and 100.'},status=400)
@@ -70,6 +77,11 @@ class RepaymentScheduleViewSet(viewsets.ReadOnlyModelViewSet):
         with transaction.atomic():
             application=FinancialApplication.objects.select_for_update().get(pk=application.pk,organization=application.organization)
             if application.repayment_schedules.exists():return Response({'detail':'A repayment schedule already exists for this application.'},status=409)
+            application.annual_interest_rate=annual_rate
+            application.loan_tenure_months=count
+            application.monthly_repayment_amount=each
+            application.next_payment_due_date=due
+            application.save(update_fields=['annual_interest_rate','loan_tenure_months','monthly_repayment_amount','next_payment_due_date','updated_at'])
             for n in range(count):
                 month_index=due.month-1+n; year=due.year+month_index//12; month=month_index%12+1
                 import calendar
@@ -91,10 +103,6 @@ class RepaymentPaymentViewSet(viewsets.ModelViewSet):
         qs=RepaymentPayment.objects.filter(organization=org).select_related('repayment_schedule','recorded_by__user')
         ctx=get_user_role_context(self.request.user,self.request); level=ctx['hierarchy_level']; user=self.request.user
         if level>=90:return qs
-        if ctx['role_code'] in ('finance_analyst','financial_analyst'):return qs
-        if ctx['role_code']=='sales_analyst':
-            employee=getattr(user,'employee',None)
-            return qs.filter(Q(recorded_by=employee)|Q(repayment_schedule__application__lead__assigned_sales_analyst=employee)) if employee else qs.none()
         if level>=70:
             manager=user.manager_set.first() if hasattr(user,'manager_set') else None; depts=manager.managed_departments.all() if manager else []
             return qs.filter(repayment_schedule__application__assigned_employee__department__in=depts)
@@ -111,7 +119,7 @@ class RepaymentPaymentViewSet(viewsets.ModelViewSet):
     @action(detail=True,methods=['post'])
     def verify(self,request,pk=None):
         role=get_user_role_context(request.user,request)
-        if role['hierarchy_level']<70 and role['role_code'] not in ('finance_analyst','financial_analyst','sales_analyst'): return Response({'detail':'Finance or sales analyst, manager, or organization admin role required.'},status=403)
+        if role['hierarchy_level']<30: return Response({'detail':'A staff account is required to verify a payment.'},status=403)
         payment=self.get_object(); decision=request.data.get('verification_status')
         if decision not in ('VERIFIED','REJECTED'): return Response({'detail':'verification_status must be VERIFIED or REJECTED.'},status=400)
         if payment.verification_status!='PENDING':return Response({'detail':'Only pending payments can be reviewed.'},status=400)

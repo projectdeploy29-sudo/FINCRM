@@ -91,6 +91,7 @@ class UserMeSerializer(serializers.ModelSerializer):
             'permissions',
             'available_roles',
         ]
+        read_only_fields = ['id', 'is_active']
 
     def get_organization(self, obj):
         org = get_user_organization(obj)

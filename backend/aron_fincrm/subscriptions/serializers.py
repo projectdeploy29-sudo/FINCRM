@@ -21,7 +21,8 @@ class PlanSerializer(serializers.ModelSerializer):
             'monthly_price',
             'yearly_price',
             'max_employees',
-            'max_applications_per_month',
+            'max_leads',
+            'daily_ai_tokens',
             'features',
             'is_active',
             'created_at',
@@ -73,23 +74,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def get_usage(self, obj):
         org = obj.organization
         now = timezone.now()
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
         employees_count = (
             Employee.objects.filter(organization=org).count() +
             Manager.objects.filter(organization=org).count() +
             TeamLead.objects.filter(organization=org).count()
         )
-        apps_count = FinancialApplication.objects.filter(
-            organization=org,
-            created_at__gte=month_start,
-        ).count()
+        from leads.models import Lead
+        leads_count = Lead.objects.filter(organization=org).count()
 
         return {
             'staff_count': employees_count,
             'max_staff_allowed': obj.plan.max_employees,
-            'applications_this_month': apps_count,
-            'max_applications_allowed': obj.plan.max_applications_per_month,
+            'leads_count': leads_count,
+            'max_leads_allowed': obj.plan.max_leads,
+            'daily_ai_tokens': obj.plan.daily_ai_tokens,
         }
 
     def get_days_remaining(self, obj):
@@ -124,6 +122,9 @@ class SubscribeSerializer(serializers.Serializer):
         else:
             end_date = now + timedelta(days=365)
             amount = plan.yearly_price
+
+        if amount is None:
+            raise serializers.ValidationError({'billing_cycle': 'This plan requires a negotiated contract or pricing setup before it can be activated.'})
 
         code = f"SUB-{uuid.uuid4().hex[:8].upper()}"
 

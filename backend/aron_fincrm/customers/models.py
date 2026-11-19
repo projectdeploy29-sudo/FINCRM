@@ -20,6 +20,11 @@ class Customer(models.Model):
         ACTIVE = "active", "Active"
         INACTIVE = "inactive", "Inactive"
 
+    class Priority(models.TextChoices):
+        HIGH = "HIGH", "High"
+        MEDIUM = "MEDIUM", "Medium"
+        LOW = "LOW", "Low"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
         "organizations.organizations_organization",
@@ -47,6 +52,8 @@ class Customer(models.Model):
     source = models.CharField(max_length=100, blank=True)
     
     status = models.CharField(max_length=20, choices=Status.choices)
+    # Customer conversion likelihood; distinct from VIP/General tags.
+    priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(
         "employes.employee",

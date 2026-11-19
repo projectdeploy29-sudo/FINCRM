@@ -1,4 +1,5 @@
 from rest_framework import viewsets, status
+from django.db.models import Q
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
@@ -33,12 +34,12 @@ class InteractionViewSet(viewsets.ModelViewSet):
         if level>=90:return qs
         if level>=70:
             manager=user.manager_set.first() if hasattr(user,'manager_set') else None; depts=manager.managed_departments.all() if manager else []
-            return qs.filter(employee__department__in=depts)
+            return qs.filter(Q(employee__department__in=depts)|Q(created_by=user)).distinct()
         if level>=50:
             profile=user.teamlead_profiles.first() if hasattr(user,'teamlead_profiles') else None; teams=profile.teams.all() if profile else []
-            return qs.filter(employee__team__in=teams)
+            return qs.filter(Q(employee__team__in=teams)|Q(created_by=user)).distinct()
         emp=getattr(user,'employee',None)
-        return qs.filter(employee=emp) if emp else qs.filter(created_by=user)
+        return qs.filter(Q(employee=emp)|Q(created_by=user)).distinct() if emp else qs.filter(created_by=user)
 
 
 class MessageDraftViewSet(viewsets.ModelViewSet):
@@ -86,4 +87,5 @@ class InteractionAttendeeViewSet(viewsets.ModelViewSet):
     serializer_class=InteractionAttendeeSerializer; permission_classes=[IsAuthenticatedTenant]
     def get_queryset(self):
         org=get_user_organization(self.request.user,self.request)
-        return InteractionAttendee.objects.filter(interaction__organization=org).select_related('interaction','employee__user') if org else InteractionAttendee.objects.none()
+        qs=InteractionAttendee.objects.filter(interaction__organization=org).select_related('interaction','employee__user') if org else InteractionAttendee.objects.none()
+        return qs

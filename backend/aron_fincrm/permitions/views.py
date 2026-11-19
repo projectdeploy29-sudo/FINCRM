@@ -21,7 +21,8 @@ class RoleViewSet(viewsets.ModelViewSet):
         org = get_user_organization(user)
         if not org:
             return Role.objects.filter(is_system_role=True)
-        return Role.objects.filter(Q(is_system_role=True) | Q(organization=org)).order_by('-is_system_role', 'name')
+        qs=Role.objects.filter(Q(is_system_role=True) | Q(organization=org)).order_by('-is_system_role', 'name')
+        return qs
 
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:

@@ -72,7 +72,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 
         # 1. Org Admin / Superuser: full visibility
         if level >= 90:
-            return base_qs.none()
+            return base_qs
 
         # 2. Manager: departments they manage
         if level >= 70:
@@ -110,7 +110,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ['create']:
-            return [IsAuthenticatedTenant(), IsEmployee()]
+            return [IsAuthenticatedTenant(), IsTeamLead()]
         elif self.action in ['destroy']:
             return [IsAuthenticatedTenant(), IsOrgAdmin()]
         elif self.action in ['update', 'partial_update']:

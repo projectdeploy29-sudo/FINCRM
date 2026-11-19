@@ -3,7 +3,7 @@ from rest_framework import serializers
 from django.db import transaction
 from django.db.models import Sum
 from finance.models import RepaymentSchedule, RepaymentPayment
-from organizations.tenant import get_user_organization
+from organizations.tenant import get_user_organization, get_user_role_context
 
 class RepaymentScheduleSerializer(serializers.ModelSerializer):
     outstanding_amount=serializers.ReadOnlyField(); is_overdue=serializers.ReadOnlyField()
@@ -14,8 +14,17 @@ class RepaymentPaymentSerializer(serializers.ModelSerializer):
     class Meta: model=RepaymentPayment; fields='__all__'; read_only_fields=('organization','recorded_by','verified_by','verification_status','created_at'); extra_kwargs={'payment_proof':{'write_only':True}}
     def get_payment_proof_available(self,obj): return bool(obj.payment_proof)
     def validate_repayment_schedule(self, schedule):
-        org=get_user_organization(self.context['request'].user,self.context['request'])
+        request=self.context['request']; user=request.user
+        org=get_user_organization(user,request)
         if not org or schedule.organization_id != org.id: raise serializers.ValidationError('Schedule must belong to your organization.')
+        role=get_user_role_context(user,request); level=role['hierarchy_level']; employee=getattr(user,'employee',None); app=schedule.application
+        if level<50 and (not employee or app.assigned_employee_id!=employee.id): raise serializers.ValidationError('This loan must be assigned to you.')
+        if 50<=level<70:
+            profile=user.teamlead_profiles.first() if hasattr(user,'teamlead_profiles') else None
+            if not profile or not app.assigned_employee_id or not profile.teams.filter(pk=app.assigned_employee.team_id).exists(): raise serializers.ValidationError('This loan must belong to a team you lead.')
+        if 70<=level<90:
+            manager=user.manager_set.first() if hasattr(user,'manager_set') else None
+            if not manager or not app.assigned_employee_id or not manager.managed_departments.filter(pk=app.assigned_employee.department_id).exists(): raise serializers.ValidationError('This loan must belong to a department you manage.')
         try: amount=Decimal(str(self.initial_data.get('amount','0')))
         except (InvalidOperation,TypeError): raise serializers.ValidationError('Enter a valid payment amount.')
         if amount<=0: raise serializers.ValidationError('Payment amount must be greater than zero.')

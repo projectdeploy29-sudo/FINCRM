@@ -49,7 +49,16 @@ class Task(models.Model):
     assigned_to = models.ForeignKey(
         "employes.Employee",
         on_delete=models.PROTECT,
-        related_name="assigned_tasks"
+        related_name="assigned_tasks",
+        null=True,
+        blank=True,
+    )
+    assigned_to_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="assigned_fincrm_tasks",
     )
 
     department = models.ForeignKey(
@@ -179,9 +188,17 @@ class CostomerFollowUp(models.Model):
         related_name="followups",
     )
 
+    assigned_to = models.ForeignKey('employes.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_customer_followups')
+    created_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_customer_followups')
+    title = models.CharField(max_length=255, blank=True)
+    description = models.TextField(blank=True)
+    purpose = models.CharField(max_length=255, blank=True)
+
     created_by = models.ForeignKey(
         "employes.Employee",
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="created_followups"
     )
 
@@ -207,6 +224,11 @@ class CostomerFollowUp(models.Model):
         blank=True,
         null=True
     )
+
+    meeting_duration_minutes = models.PositiveSmallIntegerField(default=30)
+    meeting_location = models.CharField(max_length=255, blank=True)
+    meeting_url = models.URLField(blank=True)
+    invitee_emails = models.TextField(blank=True, help_text="Comma-separated invitee email addresses")
 
     completed_at = models.DateTimeField(
         null=True,
@@ -245,9 +267,17 @@ class LeadFollowUp(models.Model):
         related_name="followups",
     )
 
+    assigned_to = models.ForeignKey('employes.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_lead_followups')
+    created_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_lead_followups')
+    title = models.CharField(max_length=255, blank=True)
+    description = models.TextField(blank=True)
+    purpose = models.CharField(max_length=255, blank=True)
+
     created_by = models.ForeignKey(
         "employes.Employee",
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         
     )
 
@@ -273,6 +303,11 @@ class LeadFollowUp(models.Model):
         blank=True,
         null=True
     )
+
+    meeting_duration_minutes = models.PositiveSmallIntegerField(default=30)
+    meeting_location = models.CharField(max_length=255, blank=True)
+    meeting_url = models.URLField(blank=True)
+    invitee_emails = models.TextField(blank=True, help_text="Comma-separated invitee email addresses")
 
     completed_at = models.DateTimeField(
         null=True,
@@ -311,9 +346,17 @@ class applicationFollowUp(models.Model):
         related_name="followups",
     )
 
+    assigned_to = models.ForeignKey('employes.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_application_followups')
+    created_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_application_followups')
+    title = models.CharField(max_length=255, blank=True)
+    description = models.TextField(blank=True)
+    purpose = models.CharField(max_length=255, blank=True)
+
     created_by = models.ForeignKey(
         "employes.Employee",
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         
     )
 
@@ -339,6 +382,11 @@ class applicationFollowUp(models.Model):
         blank=True,
         null=True
     )
+
+    meeting_duration_minutes = models.PositiveSmallIntegerField(default=30)
+    meeting_location = models.CharField(max_length=255, blank=True)
+    meeting_url = models.URLField(blank=True)
+    invitee_emails = models.TextField(blank=True, help_text="Comma-separated invitee email addresses")
 
     completed_at = models.DateTimeField(
         null=True,
