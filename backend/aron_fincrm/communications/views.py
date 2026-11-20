@@ -1,51 +1,18 @@
-from rest_framework import viewsets, status
 from django.db.models import Q
-from rest_framework.decorators import action
-from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.filters import SearchFilter, OrderingFilter
-from communications.models import Interaction, InteractionAttendee, MessageDraft
-from communications.serializers import InteractionSerializer, InteractionAttendeeSerializer, MessageDraftSerializer
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.response import Response
+
+from communications.models import MessageDraft
+from communications.serializers import MessageDraftSerializer
 from organizations.tenant import get_user_organization, get_user_role_context
 from permitions.permissions import IsAuthenticatedTenant, IsTeamLead
 
 
-class InteractionViewSet(viewsets.ModelViewSet):
-    """
-    CRUD for Interactions (calls, emails, meetings, WhatsApp, notes).
-    Can be filtered by customer, lead, or application.
-    """
-    serializer_class = InteractionSerializer
-    permission_classes = [IsAuthenticatedTenant]
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['customer', 'lead', 'application', 'interaction_type', 'direction']
-    search_fields = ['subject', 'content', 'outcome']
-    ordering_fields = ['occurred_at', 'created_at']
-    ordering = ['-occurred_at']
-
-    def get_queryset(self):
-        org = get_user_organization(self.request.user, self.request)
-        if not org:
-            return Interaction.objects.none()
-        qs=Interaction.objects.filter(organization=org).select_related(
-            'customer', 'lead', 'employee__user', 'created_by'
-        )
-        ctx=get_user_role_context(self.request.user,self.request); level=ctx['hierarchy_level']; user=self.request.user
-        if level>=90:return qs
-        if level>=70:
-            manager=user.manager_set.first() if hasattr(user,'manager_set') else None; depts=manager.managed_departments.all() if manager else []
-            return qs.filter(Q(employee__department__in=depts)|Q(created_by=user)).distinct()
-        if level>=50:
-            profile=user.teamlead_profiles.first() if hasattr(user,'teamlead_profiles') else None; teams=profile.teams.all() if profile else []
-            return qs.filter(Q(employee__team__in=teams)|Q(created_by=user)).distinct()
-        emp=getattr(user,'employee',None)
-        return qs.filter(Q(employee=emp)|Q(created_by=user)).distinct() if emp else qs.filter(created_by=user)
-
-
 class MessageDraftViewSet(viewsets.ModelViewSet):
-    """
-    CRUD for customer communication drafts (SMS, Email, WhatsApp).
-    """
+    """CRUD for customer communication drafts (SMS, Email, WhatsApp)."""
     serializer_class = MessageDraftSerializer
     permission_classes = [IsAuthenticatedTenant]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -57,35 +24,42 @@ class MessageDraftViewSet(viewsets.ModelViewSet):
         org = get_user_organization(self.request.user, self.request)
         if not org:
             return MessageDraft.objects.none()
-        qs=MessageDraft.objects.filter(organization=org).select_related(
-            'customer', 'created_by'
-        )
-        return qs if get_user_role_context(self.request.user,self.request)['hierarchy_level']>=50 else qs.filter(created_by=self.request.user)
+        qs = MessageDraft.objects.filter(organization=org).select_related('customer', 'created_by')
+        role = get_user_role_context(self.request.user, self.request)
+        level = role['hierarchy_level']
+        user = self.request.user
+        if level >= 90:
+            return qs
+        if level >= 70:
+            manager = user.manager_set.first() if hasattr(user, 'manager_set') else None
+            departments = manager.managed_departments.all() if manager else []
+            return qs.filter(
+                Q(customer__assigned_to__department__in=departments)
+                | Q(customer__created_by__department__in=departments)
+                | Q(created_by=user)
+            ).distinct()
+        if level >= 50:
+            profile = user.teamlead_profiles.first() if hasattr(user, 'teamlead_profiles') else None
+            teams = profile.teams.all() if profile else []
+            return qs.filter(
+                Q(customer__assigned_to__team__in=teams)
+                | Q(customer__created_by__team__in=teams)
+                | Q(created_by=user)
+            ).distinct()
+        employee = getattr(user, 'employee', None)
+        return qs.filter(Q(customer__assigned_to=employee) | Q(created_by=user)).distinct() if employee else qs.none()
 
     def get_permissions(self):
-        if self.action=='approve': return [IsAuthenticatedTenant(),IsTeamLead()]
+        if self.action == 'approve':
+            return [IsAuthenticatedTenant(), IsTeamLead()]
         return [IsAuthenticatedTenant()]
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
-        """
-        POST /api/v1/communications/drafts/<id>/approve/
-        Marks a message draft as approved and ready for dispatch.
-        """
         draft = self.get_object()
         draft.status = MessageDraft.Status.APPROVED
         draft.save(update_fields=['status', 'updated_at'])
-        return Response(
-            {
-                "detail": "Message draft approved successfully.",
-                "draft": MessageDraftSerializer(draft).data,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-class InteractionAttendeeViewSet(viewsets.ModelViewSet):
-    serializer_class=InteractionAttendeeSerializer; permission_classes=[IsAuthenticatedTenant]
-    def get_queryset(self):
-        org=get_user_organization(self.request.user,self.request)
-        qs=InteractionAttendee.objects.filter(interaction__organization=org).select_related('interaction','employee__user') if org else InteractionAttendee.objects.none()
-        return qs
+        return Response({
+            'detail': 'Message draft approved successfully.',
+            'draft': MessageDraftSerializer(draft).data,
+        }, status=status.HTTP_200_OK)

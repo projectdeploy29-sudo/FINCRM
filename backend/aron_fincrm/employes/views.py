@@ -47,6 +47,8 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     """
     serializer_class = EmployeeSerializer
     permission_classes = [IsAuthenticatedTenant]
+    search_fields = ['employee_code', 'user__username', 'user__first_name', 'user__last_name', 'work_email', 'designation']
+    ordering_fields = ['employee_code', 'created_at', 'join_date', 'employment_status']
 
     def get_queryset(self):
         user = self.request.user
@@ -60,6 +62,8 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         base_qs = Employee.objects.filter(organization=org).select_related(
             'user', 'department', 'team', 'role', 'manager__user'
         ).order_by('employee_code')
+        if self.request.query_params.get('active', '').lower() == 'true':
+            base_qs=base_qs.filter(employment_status=Employee.EmploymentStatus.ACTIVE)
         role_code=self.request.query_params.get('role_code')
         if role_code:
             role_matches=base_qs.filter(Q(role__code=role_code)|Q(additional_roles__code=role_code))
@@ -136,37 +140,60 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class ManagerViewSet(viewsets.ReadOnlyModelViewSet):
+class ManagerViewSet(viewsets.ModelViewSet):
     """
     GET /api/v1/staff/managers/
     List and retrieve Managers in the organization.
     """
     serializer_class = ManagerSerializer
     permission_classes = [IsAuthenticatedTenant, IsManager]
+    search_fields = ['code', 'user__username', 'user__first_name', 'user__last_name', 'work_email', 'designation']
+    ordering_fields = ['code', 'created_at', 'employment_status']
 
     def get_queryset(self):
         org = get_user_organization(self.request.user,self.request)
         if not org:
             return Manager.objects.none()
         qs=Manager.objects.filter(organization=org).select_related('user').prefetch_related('managed_departments').order_by('code')
+        if self.request.query_params.get('active', '').lower() == 'true':
+            qs=qs.filter(employment_status=Manager.ManagerStatus.ACTIVE)
         ctx=get_user_role_context(self.request.user,self.request)
         if 70<=ctx['hierarchy_level']<90:qs=qs.filter(user=self.request.user)
         return qs
 
+    def get_permissions(self):
+        if self.action in ('update', 'partial_update', 'destroy'):
+            return [IsAuthenticatedTenant(), IsOrgAdmin()]
+        return super().get_permissions()
 
-class TeamLeadViewSet(viewsets.ReadOnlyModelViewSet):
+    def create(self, request, *args, **kwargs):
+        return Response({'detail': 'Use the staff onboarding endpoint to create managers.'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def perform_destroy(self, instance):
+        instance.employment_status = Manager.ManagerStatus.TERMINATED
+        instance.save(update_fields=['employment_status', 'updated_at'])
+        if instance.user and instance.user.is_active:
+            instance.user.is_active = False
+            instance.user.save(update_fields=['is_active'])
+
+
+class TeamLeadViewSet(viewsets.ModelViewSet):
     """
     GET /api/v1/staff/team-leads/
     List and retrieve Team Leads in the organization.
     """
     serializer_class = TeamLeadSerializer
     permission_classes = [IsAuthenticatedTenant, IsTeamLead]
+    search_fields = ['code', 'user__username', 'user__first_name', 'user__last_name', 'work_email', 'designation', 'department__name']
+    ordering_fields = ['code', 'created_at', 'employment_status']
 
     def get_queryset(self):
         org = get_user_organization(self.request.user,self.request)
         if not org:
             return TeamLead.objects.none()
         qs=TeamLead.objects.filter(organization=org).select_related('user', 'department', 'manager__user').prefetch_related('teams').order_by('code')
+        if self.request.query_params.get('active', '').lower() == 'true':
+            qs=qs.filter(employment_status=TeamLead.teamStatus.ACTIVE)
         ctx=get_user_role_context(self.request.user,self.request)
         if 50<=ctx['hierarchy_level']<70:
             qs=qs.filter(user=self.request.user)
@@ -174,3 +201,18 @@ class TeamLeadViewSet(viewsets.ReadOnlyModelViewSet):
             manager=self.request.user.manager_set.first() if hasattr(self.request.user,'manager_set') else None
             qs=qs.filter(department__in=manager.managed_departments.all()) if manager else qs.none()
         return qs
+
+    def get_permissions(self):
+        if self.action in ('update', 'partial_update', 'destroy'):
+            return [IsAuthenticatedTenant(), IsOrgAdmin()]
+        return super().get_permissions()
+
+    def create(self, request, *args, **kwargs):
+        return Response({'detail': 'Use the staff onboarding endpoint to create team leads.'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def perform_destroy(self, instance):
+        instance.employment_status = TeamLead.teamStatus.TERMINATED
+        instance.save(update_fields=['employment_status', 'updated_at'])
+        if instance.user and instance.user.is_active:
+            instance.user.is_active = False
+            instance.user.save(update_fields=['is_active'])

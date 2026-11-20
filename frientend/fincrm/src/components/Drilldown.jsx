@@ -127,7 +127,7 @@ export default function Drilldown({ api, target, onClose }) {
         const { filter = {} } = current
         result = result.filter((item) => {
           if (current.kind !== 'pipeline-leads' && current.dateRange?.start_date && current.dateRange?.end_date) {
-            const dateField = current.kind === 'payments' ? item.payment_date : current.kind === 'tasks' ? item.due_date : current.kind === 'followups' ? item.scheduled_at : current.kind === 'documents' ? item.uploaded_at : item.created_at
+            const dateField = current.kind === 'payments' ? item.payment_date : current.kind === 'tasks' ? item.due_date : current.kind === 'followups' ? item.scheduled_at : item.created_at
             const day = localDay(dateField)
             if (!day || day < current.dateRange.start_date || day > current.dateRange.end_date) return false
           }

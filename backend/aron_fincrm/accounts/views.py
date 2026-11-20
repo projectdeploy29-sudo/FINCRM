@@ -44,7 +44,7 @@ class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        serializer = ChangePasswordSerializer(data=request.data)
+        serializer = ChangePasswordSerializer(data=request.data, context={'user': request.user})
         if serializer.is_valid():
             user = request.user
             if not user.check_password(serializer.validated_data['old_password']):

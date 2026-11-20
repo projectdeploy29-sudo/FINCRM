@@ -5,9 +5,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from customers.models import Customer, CustomerTag
-from customers.serializers import CustomerSerializer
-from communications.models import Interaction
+from customers.models import Customer, CustomerTag, CustomerAssignmentHistory
+from customers.serializers import CustomerSerializer, CustomerAssignmentHistorySerializer
 from applications.models import FinancialApplication
 from tasks.models import CostomerFollowUp
 from organizations.tenant import get_user_organization, get_user_role_context
@@ -72,30 +71,13 @@ class CustomerViewSet(viewsets.ModelViewSet):
         """
         GET /api/v1/customers/<id>/timeline/
         Assembles a comprehensive chronological feed of all customer activities:
-        - Interactions (calls, meetings, notes, WhatsApp)
         - Financial applications (loans & insurances)
         - Follow-up logs
         """
         customer = self.get_object()
         events = []
 
-        # 1. Interactions
-        interactions = Interaction.objects.filter(customer=customer).select_related('created_by', 'employee__user')
-        for item in interactions:
-            events.append({
-                'type': 'interaction',
-                'id': str(item.id),
-                'interaction_type': item.interaction_type,
-                'direction': item.direction,
-                'subject': item.subject,
-                'content': item.content,
-                'duration': item.duration,
-                'outcome': item.outcome,
-                'occurred_at': item.occurred_at,
-                'performed_by': item.created_by.get_full_name() or item.created_by.username,
-            })
-
-        # 2. Financial Applications
+        # Financial applications
         applications = FinancialApplication.objects.filter(customer=customer).select_related('assigned_employee__user')
         for app in applications:
             events.append({
@@ -109,7 +91,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 'performed_by': (app.assigned_employee.user.get_full_name() or app.assigned_employee.user.username) if app.assigned_employee else None,
             })
 
-        # 3. Follow-ups
+        # Follow-ups
         followups = CostomerFollowUp.objects.filter(customer=customer).select_related('created_by__user')
         for f in followups:
             events.append({
@@ -173,3 +155,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
         customer.status = Customer.Status.INACTIVE
         customer.save(update_fields=['archived_at', 'status', 'updated_at'])
         return Response({"detail": "Customer archived successfully."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def history(self, request, pk=None):
+        customer = self.get_object()
+        history = CustomerAssignmentHistory.objects.filter(customer=customer).select_related(
+            'previous_owner__user', 'new_owner__user', 'changed_by'
+        )
+        return Response(CustomerAssignmentHistorySerializer(history, many=True).data)

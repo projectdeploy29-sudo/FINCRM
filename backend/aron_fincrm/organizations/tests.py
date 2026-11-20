@@ -7,12 +7,13 @@ from rest_framework.test import APIClient
 
 from accounts.models import Manager, TeamLead
 from applications.models import FinancialApplication
-from customers.models import Customer
+from customers.models import Customer, CustomerAssignmentHistory
 from employes.models import Employee
 from leads.models import Lead
 from organizations.models import Department, Organization, Team
 from subscriptions.models import Plan, Subscription
 from tasks.models import Task
+from permitions.models import Role
 
 
 class OrganizationIsolationTests(TestCase):
@@ -326,7 +327,83 @@ class OrganizationIsolationTests(TestCase):
         admin_b_pipeline = self.client_for(self.admin_b).get("/api/v1/pipeline/")
         self.assertEqual({row["status"] for row in admin_b_pipeline.data["leads"]}, {Lead.Status.UNQUALIFIED})
 
-    def test_staff_and_lead_creation_use_the_current_organization_and_its_own_limits(self):
+    def test_active_role_header_cannot_elevate_employee_scope(self):
+        sales_role = Role.objects.create(
+            organization=self.org_a,
+            name="Sales Specialist",
+            code="sales_specialist",
+        )
+        self.employee_a1.additional_roles.add(sales_role)
+        client = self.client_for(self.employee_a1.user)
+
+        client.credentials(HTTP_X_ACTIVE_ROLE="sales_specialist")
+        pipeline = client.get("/api/v1/pipeline/")
+        self.assertEqual(pipeline.status_code, 200, pipeline.data)
+        self.assertEqual({row["lead_code"] for row in pipeline.data["leads"]}, {self.lead_a1.lead_code})
+
+        client.credentials(HTTP_X_ACTIVE_ROLE="org_admin")
+        admin_dashboard = client.get("/api/v1/dashboards/admin/")
+        self.assertEqual(admin_dashboard.status_code, 403, admin_dashboard.data)
+
+    def test_inactive_employee_profile_cannot_use_tenant_endpoints(self):
+        self.employee_a1.employment_status = Employee.EmploymentStatus.TERMINATED
+        self.employee_a1.save(update_fields=['employment_status'])
+        response = self.client_for(self.employee_a1.user).get('/api/v1/leads/')
+        self.assertEqual(response.status_code, 403, response.data)
+
+    def test_assignment_dropdowns_only_return_active_managers_and_team_leads(self):
+        self.manager_b.employment_status = Manager.ManagerStatus.ON_LEAVE
+        self.manager_b.save(update_fields=['employment_status'])
+        self.teamlead_b.employment_status = TeamLead.teamStatus.TERMINATED
+        self.teamlead_b.save(update_fields=['employment_status'])
+        client = self.client_for(self.admin_a)
+
+        managers = self.rows(client, '/api/v1/staff/managers/?active=true')
+        team_leads = self.rows(client, '/api/v1/staff/team-leads/?active=true')
+        self.assertEqual({row['code'] for row in managers}, {self.manager_a.code})
+        self.assertEqual({row['code'] for row in team_leads}, {self.teamlead_a.code})
+
+    def test_customer_assignment_changes_are_recorded(self):
+        client = self.client_for(self.admin_a)
+        created = client.post(
+            "/api/v1/customers/",
+            {
+                "customer_type": "INDIVIDUAL",
+                "full_name": "Assigned Customer",
+                "primary_phone": "9000000099",
+                "preferred_channel": "phone",
+                "assigned_to": str(self.employee_a1.id),
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+        customer_id = created.data["id"]
+
+        updated = client.patch(
+            f"/api/v1/customers/{customer_id}/",
+            {"assigned_to": str(self.employee_a2.id), "change_reason": "Team workload balance"},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, 200, updated.data)
+        history = client.get(f"/api/v1/customers/{customer_id}/history/")
+        self.assertEqual(history.status_code, 200, history.data)
+        self.assertEqual(CustomerAssignmentHistory.objects.filter(customer_id=customer_id).count(), 2)
+        entries = {(row["previous_owner_name"], row["new_owner_name"], row["reason"]) for row in history.data}
+        self.assertIn((None, "northwind_employee_1", "Initial customer assignment"), entries)
+        self.assertIn(("northwind_employee_1", "northwind_employee_2", "Team workload balance"), entries)
+
+    def test_conversation_endpoints_are_removed_and_message_drafts_remain_scoped(self):
+        employee_client = self.client_for(self.employee_a1.user)
+        self.assertEqual(employee_client.get("/api/v1/communications/interactions/").status_code, 404)
+        self.assertEqual(employee_client.get("/api/v1/communications/attendees/").status_code, 404)
+        draft = employee_client.post(
+            "/api/v1/communications/drafts/",
+            {"customer": str(self.customer_b.id), "channel": "EMAIL", "message": "Private draft"},
+            format="json",
+        )
+        self.assertEqual(draft.status_code, 400, draft.data)
+
+    def test_staff_creation_is_limited_and_independent_lead_creation_is_disabled(self):
         admin_a = self.client_for(self.admin_a)
         admin_b = self.client_for(self.admin_b)
 
@@ -394,8 +471,8 @@ class OrganizationIsolationTests(TestCase):
         self.assertEqual(contoso_teamlead.status_code, 201, contoso_teamlead.data)
         self.assertEqual(TeamLead.objects.get(code="CO-TL-NEW").organization, self.org_b)
 
-        # Northwind is at its own 3-lead cap. Contoso remains below its own cap,
-        # so Northwind's usage must not block Contoso's lead creation.
+        # Qualified applications are the only supported lead source.
+        lead_count = Lead.objects.count()
         rejected_lead = admin_a.post(
             "/api/v1/leads/",
             {
@@ -405,7 +482,7 @@ class OrganizationIsolationTests(TestCase):
             },
             format="json",
         )
-        self.assertEqual(rejected_lead.status_code, 400, rejected_lead.data)
+        self.assertEqual(rejected_lead.status_code, 405, rejected_lead.data)
 
         accepted_lead = admin_b.post(
             "/api/v1/leads/",
@@ -417,5 +494,5 @@ class OrganizationIsolationTests(TestCase):
             },
             format="json",
         )
-        self.assertEqual(accepted_lead.status_code, 201, accepted_lead.data)
-        self.assertEqual(Lead.objects.get(pk=accepted_lead.data["id"]).organization, self.org_b)
+        self.assertEqual(accepted_lead.status_code, 405, accepted_lead.data)
+        self.assertEqual(Lead.objects.count(), lead_count)

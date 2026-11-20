@@ -3,9 +3,9 @@ from django.db.models import Sum, Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.http import FileResponse
 from django.utils import timezone
 from organizations.tenant import get_user_organization, get_user_role_context
+from organizations.dates import organization_local_date
 from permitions.permissions import IsAuthenticatedTenant
 from finance.models import RepaymentSchedule, RepaymentPayment, RepaymentHistory
 from finance.serializers import RepaymentScheduleSerializer, RepaymentPaymentSerializer
@@ -13,11 +13,13 @@ from finance.serializers import RepaymentScheduleSerializer, RepaymentPaymentSer
 class RepaymentScheduleViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class=RepaymentScheduleSerializer; permission_classes=[IsAuthenticatedTenant]
     filterset_fields=['application','customer','status','payment_type']
+    search_fields=['application__application_code','customer__full_name','notes']
+    ordering_fields=['due_date','installment_number','expected_amount','status']
     def get_queryset(self):
         org=get_user_organization(self.request.user,self.request)
         if not org:return RepaymentSchedule.objects.none()
-        qs=RepaymentSchedule.objects.filter(organization=org).select_related('customer','application')
-        if self.request.query_params.get('overdue')=='true': qs=qs.filter(due_date__lt=timezone.localdate(),status__in=['PENDING','PARTIAL'])
+        qs=RepaymentSchedule.objects.filter(organization=org).select_related('customer','application','lead')
+        if self.request.query_params.get('overdue')=='true': qs=qs.filter(due_date__lt=organization_local_date(self.request),status__in=['PENDING','PARTIAL'])
         role=get_user_role_context(self.request.user,self.request); level=role['hierarchy_level']; user=self.request.user
         if level>=90:return qs
         if level>=70:
@@ -88,11 +90,16 @@ class RepaymentScheduleViewSet(viewsets.ReadOnlyModelViewSet):
                 due_date=due.replace(year=year,month=month,day=min(due.day,calendar.monthrange(year,month)[1]))
                 installment_amount=each if payment_type=='EMI' and annual_rate else (each if n<count-1 else total-each*(count-1))
                 rows.append(RepaymentSchedule.objects.create(organization=application.organization,customer=application.customer,application=application,lead=application.lead,payment_type=payment_type,installment_number=n+1,expected_amount=installment_amount,due_date=due_date))
-        return Response(RepaymentScheduleSerializer(rows,many=True).data,status=201)
+        return Response(RepaymentScheduleSerializer(rows,many=True,context={'request':request}).data,status=201)
 
 class RepaymentPaymentViewSet(viewsets.ModelViewSet):
     serializer_class=RepaymentPaymentSerializer; permission_classes=[IsAuthenticatedTenant]
+    # Receipts are immutable after submission. Corrections must be rejected and
+    # re-entered so the verification history remains auditable.
+    http_method_names=['get','post','head','options']
     filterset_fields=['verification_status','repayment_schedule','payment_method']
+    search_fields=['transaction_reference','notes','repayment_schedule__application__application_code','repayment_schedule__customer__full_name']
+    ordering_fields=['payment_date','created_at','amount','verification_status']
     def get_permissions(self):
         from permitions.permissions import IsOrgAdmin
         if self.action=='destroy':return [IsAuthenticatedTenant(),IsOrgAdmin()]
@@ -111,20 +118,19 @@ class RepaymentPaymentViewSet(viewsets.ModelViewSet):
             return qs.filter(repayment_schedule__application__assigned_employee__team__in=teams)
         employee=getattr(user,'employee',None)
         return qs.filter(Q(recorded_by=employee)|Q(repayment_schedule__application__assigned_employee=employee)) if employee else qs.none()
-    @action(detail=True,methods=['get'])
-    def proof(self,request,pk=None):
-        payment=self.get_object()
-        if not payment.payment_proof:return Response({'detail':'No payment proof has been uploaded.'},status=404)
-        return FileResponse(payment.payment_proof.open('rb'),as_attachment=True,filename=payment.payment_proof.name.rsplit('/',1)[-1])
     @action(detail=True,methods=['post'])
     def verify(self,request,pk=None):
         role=get_user_role_context(request.user,request)
         if role['hierarchy_level']<30: return Response({'detail':'A staff account is required to verify a payment.'},status=403)
         payment=self.get_object(); decision=request.data.get('verification_status')
         if decision not in ('VERIFIED','REJECTED'): return Response({'detail':'verification_status must be VERIFIED or REJECTED.'},status=400)
-        if payment.verification_status!='PENDING':return Response({'detail':'Only pending payments can be reviewed.'},status=400)
+        reviewer=getattr(request.user,'employee',None)
+        if reviewer and payment.recorded_by_id==reviewer.id:
+            return Response({'detail':'The employee who recorded a payment cannot review it.'},status=403)
         with transaction.atomic():
-            payment=RepaymentPayment.objects.select_for_update().get(pk=payment.pk)
+            payment=RepaymentPayment.objects.select_for_update().get(pk=payment.pk,organization=get_user_organization(request.user,request))
+            if payment.verification_status!='PENDING':
+                return Response({'detail':'Only pending payments can be reviewed.'},status=400)
             old=payment.verification_status; payment.verification_status=decision; payment.verified_by=getattr(request.user,'employee',None); payment.save(update_fields=['verification_status','verified_by'])
             RepaymentHistory.objects.create(organization=payment.organization,repayment=payment,action='verification',previous_value={'status':old},new_value={'status':decision},description=request.data.get('notes',''),performed_by=request.user)
             if decision=='VERIFIED':

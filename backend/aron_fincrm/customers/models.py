@@ -98,3 +98,33 @@ class CustomerTag(models.Model):
         db_table = "customers_customertag"
 
 
+class CustomerAssignmentHistory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer = models.ForeignKey(
+        'customers.Customer',
+        on_delete=models.CASCADE,
+        related_name='assignment_history',
+    )
+    previous_owner = models.ForeignKey(
+        'employes.Employee',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='previous_customer_assignments',
+    )
+    new_owner = models.ForeignKey(
+        'employes.Employee',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='new_customer_assignments',
+    )
+    changed_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT)
+    reason = models.TextField(blank=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'customers_customerassignmenthistory'
+        ordering = ['-changed_at']
+
+

@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+import os
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,13 +21,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-^3$shrd37p^s^^*lhl((s8#&@6cez^_ar5+1yf8n!)k&jr&*ku'
+# Development remains easy to run locally, while production must provide its
+# own secret and explicitly configure allowed hosts and browser origins.
+DEBUG = os.environ.get('DJANGO_DEBUG', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured('Set DJANGO_SECRET_KEY when DJANGO_DEBUG is false.')
+    SECRET_KEY = 'fincrm-local-development-only-change-before-deployment'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+def _csv_setting(name, default=''):
+    return [value.strip() for value in os.environ.get(name, default).split(',') if value.strip()]
 
-ALLOWED_HOSTS = []
+
+ALLOWED_HOSTS = _csv_setting(
+    'DJANGO_ALLOWED_HOSTS',
+    'localhost,127.0.0.1,[::1]' if DEBUG else '',
+)
+if not DEBUG and not ALLOWED_HOSTS:
+    raise ImproperlyConfigured('Set DJANGO_ALLOWED_HOSTS when DJANGO_DEBUG is false.')
 
 
 # Application definition
@@ -139,11 +153,10 @@ STATIC_URL = 'static/'
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+EMAIL_BACKEND = os.environ.get(
+    'DJANGO_EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend',
+)
 
 
 AUTH_USER_MODEL = "accounts.User"
@@ -174,10 +187,18 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+if DEBUG:
+    CORS_ALLOWED_ORIGINS = _csv_setting(
+        'CORS_ALLOWED_ORIGINS',
+        'http://localhost:5173,http://127.0.0.1:5173',
+    )
+else:
+    CORS_ALLOWED_ORIGINS = _csv_setting('CORS_ALLOWED_ORIGINS')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'same-origin'
+CSRF_TRUSTED_ORIGINS = _csv_setting('CSRF_TRUSTED_ORIGINS')
 from corsheaders.defaults import default_headers
 CORS_ALLOW_HEADERS = [*default_headers, 'x-active-role']
-
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'

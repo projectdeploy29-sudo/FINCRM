@@ -3,6 +3,9 @@ from django.utils.text import slugify
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from organizations.models import organizations_organization
 from permitions.models import Role
 
@@ -34,6 +37,13 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
+    def validate_timezone(self, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError, TypeError):
+            raise serializers.ValidationError('Choose a valid IANA timezone, such as Asia/Kolkata.')
+        return value
+
 
 class OrganizationRegistrationSerializer(serializers.Serializer):
     # Organization fields
@@ -44,6 +54,7 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
     org_phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
     city = serializers.CharField(max_length=100, required=False, allow_blank=True)
     state = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    timezone = serializers.CharField(max_length=50, default='Asia/Kolkata')
     currency = serializers.CharField(max_length=3, default='INR')
 
     # Admin User fields
@@ -52,6 +63,26 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, min_length=6)
     first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+
+    def validate_timezone(self, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError, TypeError):
+            raise serializers.ValidationError('Choose a valid IANA timezone, such as Asia/Kolkata.')
+        return value
+
+    def validate_password(self, value):
+        candidate = User(
+            username=self.initial_data.get('username', ''),
+            email=self.initial_data.get('email', ''),
+            first_name=self.initial_data.get('first_name', ''),
+            last_name=self.initial_data.get('last_name', ''),
+        )
+        try:
+            validate_password(value, candidate)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages)
+        return value
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
@@ -89,6 +120,7 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
                 phone=validated_data.get('org_phone', ''),
                 city=validated_data.get('city', ''),
                 state=validated_data.get('state', ''),
+                timezone=validated_data.get('timezone', 'Asia/Kolkata'),
                 currency=validated_data.get('currency', 'INR'),
             )
 
@@ -100,7 +132,7 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
                 first_name=validated_data.get('first_name', ''),
                 last_name=validated_data.get('last_name', ''),
                 default_organization=org,
-                is_staff=True,
+                is_staff=False,
             )
 
             # 3. Create or assign Org Admin Role for this organization
@@ -176,6 +208,7 @@ class DepartmentSerializer(serializers.ModelSerializer):
         from organizations.tenant import get_user_organization
         org=get_user_organization(self.context['request'].user,self.context['request'])
         if manager and (not org or manager.organization_id!=org.id): raise serializers.ValidationError('Manager must belong to your organization.')
+        if manager and manager.employment_status!=manager.ManagerStatus.ACTIVE: raise serializers.ValidationError('Choose an active manager.')
         return manager
 
     def create(self, validated_data):
@@ -238,10 +271,15 @@ class TeamSerializer(serializers.ModelSerializer):
         req=self.context['request']; org=get_user_organization(req.user,req); instance=self.instance
         department=attrs.get('department',getattr(instance,'department',None)); lead=attrs.get('team_lead',getattr(instance,'team_lead',None)); leader=attrs.get('team_leader',getattr(instance,'team_leader',None))
         if not org: raise serializers.ValidationError('Organization context is required.')
-        if department and department.organization_id!=org.id: raise serializers.ValidationError({'department':'Department must belong to your organization.'})
+        if not department: raise serializers.ValidationError({'department':'Choose a department for this team.'})
+        if department.organization_id!=org.id: raise serializers.ValidationError({'department':'Department must belong to your organization.'})
+        if not department.is_active: raise serializers.ValidationError({'department':'Choose an active department.'})
         if lead and lead.organization_id!=org.id: raise serializers.ValidationError({'team_lead':'Team lead must belong to your organization.'})
         if leader and leader.organization_id!=org.id: raise serializers.ValidationError({'team_leader':'Team leader must belong to your organization.'})
-        if lead and department and lead.department_id and lead.department_id!=department.id: raise serializers.ValidationError({'team_lead':'Team lead must belong to the selected department.'})
+        if lead and lead.employment_status!=lead.teamStatus.ACTIVE: raise serializers.ValidationError({'team_lead':'Choose an active team lead.'})
+        if leader and leader.employment_status!=leader.EmploymentStatus.ACTIVE: raise serializers.ValidationError({'team_leader':'Choose an active employee team lead.'})
+        if department and not department.is_active: raise serializers.ValidationError({'department':'Choose an active department.'})
+        if lead and department and lead.department_id!=department.id: raise serializers.ValidationError({'team_lead':'Team lead must belong to the selected department.'})
         return attrs
 
     def create(self, validated_data):

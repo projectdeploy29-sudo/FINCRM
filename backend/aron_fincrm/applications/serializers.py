@@ -1,17 +1,19 @@
 from decimal import Decimal
 from rest_framework import serializers
-from applications.models import FinancialApplication, ApplicationStatusHistory, ApplicationChecklist
+from applications.models import FinancialApplication, ApplicationStatusHistory
 from employes.models import Employee
 from organizations.tenant import get_user_organization, get_user_role_context
+from organizations.dates import OrganizationDateTimeField
 
 class FinancialApplicationSerializer(serializers.ModelSerializer):
     application_code = serializers.CharField(required=False, allow_blank=True)
     requested_amount = serializers.DecimalField(max_digits=15, decimal_places=2, required=True, min_value=Decimal('0.01'))
     assigned_employee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all(), required=True)
-    follow_up_at = serializers.DateTimeField(required=True)
+    follow_up_at = OrganizationDateTimeField(required=True)
     customer_name = serializers.SerializerMethodField(read_only=True)
     lead_name = serializers.SerializerMethodField(read_only=True)
     assigned_employee_name = serializers.SerializerMethodField(read_only=True)
+    label = serializers.SerializerMethodField(read_only=True)
     class Meta:
         model = FinancialApplication
         fields = '__all__'
@@ -39,11 +41,19 @@ class FinancialApplicationSerializer(serializers.ModelSerializer):
             user = obj.assigned_employee.user
             return user.get_full_name() or user.username
         return None
+
+    def get_label(self, obj):
+        customer_name = obj.customer.full_name or obj.customer.legal_name or obj.application_code
+        amount = obj.disbursed_amount
+        amount_label = f'{obj.currency} {amount:,.2f}' if amount is not None else 'amount not recorded'
+        return f'{obj.application_code} · {customer_name} · disbursed {amount_label}'
     def validate(self,attrs):
         req=self.context['request']; org=get_user_organization(req.user,req); instance=self.instance
         lead=attrs.get('lead',getattr(instance,'lead',None)); employee=attrs.get('assigned_employee',getattr(instance,'assigned_employee',None))
         if lead and (not org or lead.organization_id!=org.id): raise serializers.ValidationError({'lead':'Lead must belong to your organization.'})
         if employee and (not org or employee.organization_id!=org.id): raise serializers.ValidationError({'assigned_employee':'Employee must belong to your organization.'})
+        if employee and (not instance or employee != instance.assigned_employee) and employee.employment_status != employee.EmploymentStatus.ACTIVE:
+            raise serializers.ValidationError({'assigned_employee':'Assign applications only to active employees.'})
         role=get_user_role_context(req.user,req); level=role['hierarchy_level']; user=req.user
         if lead and level<50:
             employee=getattr(user,'employee',None)
@@ -81,16 +91,3 @@ class ApplicationStatusHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ApplicationStatusHistory
         fields = '__all__'
-
-class ApplicationChecklistSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ApplicationChecklist
-        fields = '__all__'
-        read_only_fields = ('updated_by', 'updated_at')
-    def validate(self,attrs):
-        req=self.context['request']; org=get_user_organization(req.user,req); instance=self.instance
-        app=attrs.get('application',getattr(instance,'application',None)); doc=attrs.get('document',getattr(instance,'document',None))
-        if not org or not app or app.organization_id!=org.id: raise serializers.ValidationError({'application':'Application must belong to your organization.'})
-        if doc and (doc.organization_id!=org.id or doc.application_id!=app.id): raise serializers.ValidationError({'document':'Choose a document uploaded to this application.'})
-        if attrs.get('status')==ApplicationChecklist.Status.ACCEPTED and not doc: raise serializers.ValidationError({'document':'An accepted checklist item must reference a document.'})
-        return attrs

@@ -1,4 +1,4 @@
 from rest_framework.routers import DefaultRouter
-from applications.views import FinancialApplicationViewSet, ApplicationChecklistViewSet
-router=DefaultRouter(); router.register('applications',FinancialApplicationViewSet,basename='application'); router.register('application-checklist',ApplicationChecklistViewSet,basename='application-checklist')
+from applications.views import FinancialApplicationViewSet
+router=DefaultRouter(); router.register('applications',FinancialApplicationViewSet,basename='application')
 urlpatterns=router.urls

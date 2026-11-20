@@ -177,19 +177,33 @@ class Stage2HierarchyAndStaffTests(TestCase):
         self.assertEqual(history_qs.first().reason, "Initial staff onboarding")
 
         # Step 5: Transfer employee to another team/dept and verify audit history
-        new_dept = Department.objects.create(organization=self.org, name="Risk Assessment")
+        new_team = Team.objects.create(
+            organization=self.org,
+            department=dept,
+            name="Risk Assessment Team",
+            team_lead=tl_obj,
+        )
         patch_res = self.client.patch(
             reverse('staff_employee-detail', kwargs={'pk': emp_id}),
-            {"department": str(new_dept.id), "change_reason": "Promoted to Risk Dept"},
+            {"team": str(new_team.id), "change_reason": "Transferred to Risk Team"},
             format='json'
         )
-        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK, patch_res.data)
 
         # Verify history updated
         hist_res = self.client.get(reverse('staff_employee-history', kwargs={'pk': emp_id}))
         self.assertEqual(hist_res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(hist_res.json()), 2)
-        self.assertEqual(hist_res.json()[0]['reason'], "Promoted to Risk Dept")
+        self.assertEqual(hist_res.json()[0]['reason'], "Transferred to Risk Team")
+
+        outside_department = Department.objects.create(organization=self.org, name="Other Department")
+        outside_team = Team.objects.create(organization=self.org, department=outside_department, name="Outside Team")
+        out_of_scope_transfer = self.client.patch(
+            reverse('staff_employee-detail', kwargs={'pk': emp_id}),
+            {"department": str(outside_department.id), "team": str(outside_team.id)},
+            format='json'
+        )
+        self.assertEqual(out_of_scope_transfer.status_code, 400, out_of_scope_transfer.data)
 
     def test_hierarchy_tree_endpoint(self):
         """

@@ -15,9 +15,9 @@ from applications.models import FinancialApplication
 from leads.models import Lead
 from customers.models import Customer
 from finance.models import RepaymentSchedule, RepaymentPayment
-from documents.models import Document
 from organizations.models import Department, Team
 from organizations.date_filters import apply_date_range
+from organizations.dates import organization_local_date
 
 from rest_framework import serializers
 
@@ -79,17 +79,17 @@ class TaskViewSet(viewsets.ModelViewSet):
   task=self.get_object(); return Response(TaskHistorySerializer(task.history.select_related('changed_by').order_by('-created_at'),many=True).data)
 
 class CustomerFollowUpViewSet(viewsets.ModelViewSet):
- serializer_class=CustomerFollowUpSerializer; permission_classes=[IsAuthenticatedTenant]; filterset_fields=['customer','assigned_to','status','followup_type']
+ serializer_class=CustomerFollowUpSerializer; permission_classes=[IsAuthenticatedTenant]; filterset_fields=['customer','assigned_to','status','followup_type']; search_fields=['title','description','purpose','notes','outcome','customer__full_name','customer__primary_phone']
  def get_queryset(self):
   org=get_user_organization(self.request.user,self.request); qs=CostomerFollowUp.objects.filter(organization=org) if org else CostomerFollowUp.objects.none()
   return scope_followups(qs,CostomerFollowUp,self.request.user,self.request).select_related('customer','created_by__user').order_by('-scheduled_at','pk')
 class LeadFollowUpViewSet(viewsets.ModelViewSet):
- serializer_class=LeadFollowUpSerializer; permission_classes=[IsAuthenticatedTenant]; filterset_fields=['lead','assigned_to','status','followup_type']
+ serializer_class=LeadFollowUpSerializer; permission_classes=[IsAuthenticatedTenant]; filterset_fields=['lead','assigned_to','status','followup_type']; search_fields=['title','description','purpose','notes','outcome','lead__contact_name','lead__lead_code']
  def get_queryset(self):
   org=get_user_organization(self.request.user,self.request); qs=LeadFollowUp.objects.filter(organization=org) if org else LeadFollowUp.objects.none()
   return scope_followups(qs,LeadFollowUp,self.request.user,self.request).select_related('lead','created_by__user').order_by('-scheduled_at','pk')
 class ApplicationFollowUpViewSet(viewsets.ModelViewSet):
- serializer_class=ApplicationFollowUpSerializer; permission_classes=[IsAuthenticatedTenant]; filterset_fields=['application','assigned_to','status','followup_type']
+ serializer_class=ApplicationFollowUpSerializer; permission_classes=[IsAuthenticatedTenant]; filterset_fields=['application','assigned_to','status','followup_type']; search_fields=['title','description','purpose','notes','outcome','application__application_code','application__customer__full_name']
  def get_queryset(self):
   org=get_user_organization(self.request.user,self.request); qs=applicationFollowUp.objects.filter(organization=org) if org else applicationFollowUp.objects.none()
   return scope_followups(qs,applicationFollowUp,self.request.user,self.request).select_related('application__customer','application__lead','created_by__user').order_by('-scheduled_at','pk')
@@ -97,7 +97,7 @@ class ApplicationFollowUpViewSet(viewsets.ModelViewSet):
 @api_view(['GET'])
 @permission_classes([IsAuthenticatedTenant])
 def followups_today(request):
- org=get_user_organization(request.user,request); day=timezone.localdate(); result=[]
+ org=get_user_organization(request.user,request); day=organization_local_date(request); result=[]
  ctx=get_user_role_context(request.user,request); level=ctx['hierarchy_level']; user=request.user
  if level>=90:return Response([])
  for model,field,kind in [(CostomerFollowUp,'customer','customer'),(LeadFollowUp,'lead','lead'),(applicationFollowUp,'application','application')]:
@@ -128,19 +128,19 @@ def task_recipients(request):
   employees=[employee] if employee and employee.organization_id==org.id else []
   managers=Manager.objects.none(); leads=TeamLead.objects.none()
  elif level>=90:
-  employees=Employee.objects.filter(organization=org).select_related('user')
-  managers=Manager.objects.filter(organization=org).select_related('user')
-  leads=TeamLead.objects.filter(organization=org,user__isnull=False).select_related('user')
+  employees=Employee.objects.filter(organization=org,employment_status='active').select_related('user')
+  managers=Manager.objects.filter(organization=org,employment_status='active').select_related('user')
+  leads=TeamLead.objects.filter(organization=org,user__isnull=False,employment_status='active').select_related('user')
  elif level>=70:
   manager=request.user.manager_set.first()
   depts=manager.managed_departments.all() if manager else []
-  employees=Employee.objects.filter(organization=org,department__in=depts).select_related('user')
+  employees=Employee.objects.filter(organization=org,department__in=depts,employment_status='active').select_related('user')
   managers=Manager.objects.none()
-  leads=TeamLead.objects.filter(organization=org,department__in=depts,user__isnull=False).select_related('user')
+  leads=TeamLead.objects.filter(organization=org,department__in=depts,user__isnull=False,employment_status='active').select_related('user')
  else:
   profile=request.user.teamlead_profiles.first()
   teams=profile.teams.all() if profile else []
-  employees=Employee.objects.filter(organization=org,team__in=teams).select_related('user')
+  employees=Employee.objects.filter(organization=org,team__in=teams,employment_status='active').select_related('user')
   managers=Manager.objects.none(); leads=TeamLead.objects.none()
  rows += [{'id':str(row.user_id),'name':row.user.get_full_name() or row.user.username,'role':'Employee'} for row in employees]
  rows += [{'id':str(row.user_id),'name':row.user.get_full_name() or row.user.username,'role':'Manager'} for row in managers]
@@ -156,37 +156,50 @@ def dashboard(request, role):
  if required is None:return Response({'detail':'Unknown dashboard.'},status=404)
  if level<required:return Response({'detail':'You do not have access to this dashboard.'},status=403)
  apps=FinancialApplication.objects.filter(organization=org); leads=Lead.objects.filter(organization=org); tasks=Task.objects.filter(organization=org); customers=Customer.objects.filter(organization=org)
- docs=Document.objects.filter(organization=org); payments=RepaymentPayment.objects.filter(organization=org)
+ payments=RepaymentPayment.objects.filter(organization=org)
  if level>=70 and level<90:
   profile=request.user.manager_set.first() if hasattr(request.user,'manager_set') else None
   depts=profile.managed_departments.all() if profile else []
   apps=apps.filter(assigned_employee__department__in=depts); leads=leads.filter(assigned_to__department__in=depts); tasks=tasks.filter(Q(department__in=depts)|Q(assigned_to__department__in=depts)|Q(assigned_to_user=request.user)); customers=customers.filter(assigned_to__department__in=depts)
-  docs=docs.filter(application__assigned_employee__department__in=depts); payments=payments.filter(repayment_schedule__application__assigned_employee__department__in=depts)
+  payments=payments.filter(repayment_schedule__application__assigned_employee__department__in=depts)
  elif level>=50 and level<70:
   profile=request.user.teamlead_profiles.first() if hasattr(request.user,'teamlead_profiles') else None
   teams=profile.teams.all() if profile else []
   apps=apps.filter(assigned_employee__team__in=teams); leads=leads.filter(assigned_to__team__in=teams); tasks=tasks.filter(Q(team__in=teams)|Q(assigned_to__team__in=teams)|Q(assigned_to_user=request.user)); customers=customers.filter(assigned_to__team__in=teams)
-  docs=docs.filter(application__assigned_employee__team__in=teams); payments=payments.filter(repayment_schedule__application__assigned_employee__team__in=teams)
+  payments=payments.filter(repayment_schedule__application__assigned_employee__team__in=teams)
  elif emp:
   apps=apps.filter(assigned_employee=emp); leads=leads.filter(assigned_to=emp); tasks=tasks.filter(assigned_to=emp); customers=customers.filter(assigned_to=emp)
-  docs=docs.filter(Q(application__assigned_employee=emp)|Q(customer__assigned_to=emp)); payments=payments.filter(Q(recorded_by=emp)|Q(repayment_schedule__application__assigned_employee=emp))
+  payments=payments.filter(Q(recorded_by=emp)|Q(repayment_schedule__application__assigned_employee=emp))
  apps=apply_date_range(apps,request,'created_at')
  leads=apply_date_range(leads,request,'created_at')
  tasks=apply_date_range(tasks,request,'due_date')
  customers=apply_date_range(customers,request,'created_at')
- docs=apply_date_range(docs,request,'uploaded_at')
  payments=apply_date_range(payments,request,'payment_date')
  status_rows=list(apps.values('status').annotate(count=Count('id')))
- lead_count=leads.count(); converted=leads.filter(converted_customer__isnull=False).count()
+ lead_count=leads.count(); converted=leads.filter(status='qualified').count()
  completion_total=tasks.exclude(status='CANCELLED').count(); completion_rate=round(tasks.filter(status='COMPLETED').count()*100/completion_total,2) if completion_total else 0
- day=timezone.localdate(); schedules=apply_date_range(RepaymentSchedule.objects.filter(organization=org,due_date__lt=day,status__in=['PENDING','PARTIAL']),request,'due_date')
+ day=organization_local_date(request)
+ schedules=RepaymentSchedule.objects.filter(organization=org,due_date__lt=day,status__in=['PENDING','PARTIAL'])
+ if 70<=level<90:
+  manager=request.user.manager_set.first() if hasattr(request.user,'manager_set') else None
+  depts=manager.managed_departments.all() if manager else []
+  schedules=schedules.filter(application__assigned_employee__department__in=depts)
+ elif 50<=level<70:
+  profile=request.user.teamlead_profiles.first() if hasattr(request.user,'teamlead_profiles') else None
+  teams=profile.teams.all() if profile else []
+  schedules=schedules.filter(application__assigned_employee__team__in=teams)
+ elif level<50 and emp:
+  schedules=schedules.filter(application__assigned_employee=emp)
+ elif level<50:
+  schedules=schedules.none()
+ schedules=apply_date_range(schedules,request,'due_date')
  team_performance=list(tasks.values('assigned_to__team__id','assigned_to__team__name').annotate(total_tasks=Count('id'),completed_tasks=Count('id',filter=Q(status='COMPLETED'))).order_by('assigned_to__team__name')) if role in ('manager','teamlead','admin') else []
  departments=Department.objects.filter(organization=org)
  if role=='departments' and level<90:
   manager=request.user.manager_set.first() if hasattr(request.user,'manager_set') else None
   departments=departments.filter(pk__in=manager.managed_departments.values('id')) if manager else departments.none()
  department_performance=[{'id':str(department.id),'name':department.name,'teams':department.team_set.count(),'employees':department.employee_set.count(),'applications':apps.filter(assigned_employee__department=department).count(),'tasks':tasks.filter(department=department).count()} for department in departments]
- data={'role':role,'customers':customers.count(),'leads':lead_count,'leads_converted':converted,'conversion_rate':round(converted*100/lead_count,2) if lead_count else 0,'applications':apps.count(),'applications_approved':apps.filter(status='approved').count(),'applications_rejected':apps.filter(status='rejected').count(),'applications_pending':apps.filter(status__in=['draft','submitted','under_review']).count(),'application_status':status_rows,'tasks_open':tasks.exclude(status__in=['COMPLETED','CANCELLED']).count(),'tasks_completed':tasks.filter(status='COMPLETED').count(),'tasks_overdue':tasks.filter(due_date__lt=timezone.now()).exclude(status__in=['COMPLETED','CANCELLED']).count(),'task_completion_rate':completion_rate,'team_performance':team_performance,'department_performance':department_performance if role in ('departments','admin') else [],'documents_received':docs.count(),'documents_pending':docs.filter(status='uploaded').count(),'documents_verified':docs.filter(status='accepted').count(),'documents_rejected':docs.filter(status='rejected').count(),'payments_recorded':payments.count(),'verified_revenue':payments.filter(verification_status='VERIFIED').aggregate(total=Sum('amount'))['total'] or 0,'pending_payments':payments.filter(verification_status='PENDING').count(),'overdue_installments':schedules.count(),'overdue_expected_amount':schedules.aggregate(total=Sum('expected_amount'))['total'] or 0,'disbursed_amount':apps.filter(status='disbursed').aggregate(total=Sum('disbursed_amount'))['total'] or 0}
+ data={'role':role,'customers':customers.count(),'leads':lead_count,'leads_converted':converted,'conversion_rate':round(converted*100/lead_count,2) if lead_count else 0,'applications':apps.count(),'applications_approved':apps.filter(status='approved').count(),'applications_rejected':apps.filter(status='rejected').count(),'applications_pending':apps.filter(status__in=['draft','submitted','under_review']).count(),'application_status':status_rows,'tasks_open':tasks.exclude(status__in=['COMPLETED','CANCELLED']).count(),'tasks_completed':tasks.filter(status='COMPLETED').count(),'tasks_overdue':tasks.filter(due_date__lt=timezone.now()).exclude(status__in=['COMPLETED','CANCELLED']).count(),'task_completion_rate':completion_rate,'team_performance':team_performance,'department_performance':department_performance if role in ('departments','admin') else [],'payments_recorded':payments.count(),'verified_revenue':payments.filter(verification_status='VERIFIED').aggregate(total=Sum('amount'))['total'] or 0,'pending_payments':payments.filter(verification_status='PENDING').count(),'overdue_installments':schedules.count(),'overdue_expected_amount':schedules.aggregate(total=Sum('expected_amount'))['total'] or 0,'disbursed_amount':apps.filter(status='disbursed').aggregate(total=Sum('disbursed_amount'))['total'] or 0}
  return Response(data)
 
 # Create your views here.

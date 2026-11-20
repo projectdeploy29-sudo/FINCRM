@@ -1,5 +1,5 @@
 import uuid
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -7,8 +7,8 @@ from rest_framework.response import Response
 from organizations.tenant import get_user_organization, get_user_role_context
 from django.db.models import Q
 from permitions.permissions import IsAuthenticatedTenant
-from applications.models import FinancialApplication, ApplicationStatusHistory, ApplicationChecklist
-from applications.serializers import FinancialApplicationSerializer, ApplicationStatusHistorySerializer, ApplicationChecklistSerializer
+from applications.models import FinancialApplication, ApplicationStatusHistory
+from applications.serializers import FinancialApplicationSerializer, ApplicationStatusHistorySerializer
 
 ALLOWED = {
  'draft': {'submitted','withdrawn'}, 'submitted': {'under_review','withdrawn'},
@@ -64,14 +64,6 @@ class FinancialApplicationViewSet(viewsets.ModelViewSet):
         if new == 'disbursed' and app.status != 'approved': return Response({'detail':'Application must be approved first.'}, status=400)
         if new == 'approved' and not app.lead_id:
             return Response({'detail':'Convert the qualified application to a lead before approving its loan.'},status=400)
-        if new == 'disbursed':
-            from documents.models import Document
-            docs=Document.objects.filter(application=app,organization=app.organization)
-            checklist=ApplicationChecklist.objects.filter(application=app)
-            if not docs.exists() or docs.exclude(status=Document.Status.ACCEPTED).exists():
-                return Response({'detail':'Upload and accept all application documents before disbursement.'},status=400)
-            if not checklist.exists() or checklist.exclude(status=ApplicationChecklist.Status.ACCEPTED).exists():
-                return Response({'detail':'Complete the application document checklist before disbursement.'},status=400)
         with transaction.atomic():
             old=app.status; app.status=new
             if new=='approved':
@@ -120,72 +112,52 @@ class FinancialApplicationViewSet(viewsets.ModelViewSet):
         app=self.get_object()
         if app.status != FinancialApplication.Status.QUALIFIED:
             return Response({'detail':'Only a qualified application can be converted to a lead.'},status=400)
-        if app.lead_id:
-            if app.lead.organization_id != app.organization_id or (app.lead.customer_id and app.lead.customer_id != app.customer_id) or (app.lead.application_id and app.lead.application_id != app.id):
-                return Response({'detail':'The existing linked lead does not match this application customer.'},status=409)
-            if not app.lead.customer_id or not app.lead.application_id:
-                app.lead.customer=app.customer
-                app.lead.application=app
-                app.lead.save(update_fields=['customer','application','updated_at'])
-            return Response({'detail':'This application already has a linked lead.','lead_id':str(app.lead_id),'lead_code':app.lead.lead_code},status=200)
         from leads.models import Lead, LeadStatusHistory, LeadAssignmentHistory
         from leads.serializers import LeadSerializer
-        assigned=app.assigned_employee
-        if not assigned:
-            return Response({'detail':'Assign this application to an employee before converting it to a lead.'},status=400)
-        lead_source=app.customer.source.lower().replace(' ','_') if app.customer.source else Lead.Source.OTHER
-        if lead_source not in dict(Lead.Source.choices): lead_source=Lead.Source.OTHER
-        with transaction.atomic():
-            app=FinancialApplication.objects.select_for_update().select_related('customer','assigned_employee','lead').get(pk=app.pk,organization=app.organization)
-            if app.lead_id:
-                if app.lead.organization_id != app.organization_id or (app.lead.customer_id and app.lead.customer_id != app.customer_id) or (app.lead.application_id and app.lead.application_id != app.id):
-                    return Response({'detail':'The existing linked lead does not match this application customer.'},status=409)
-                app.lead.customer=app.customer
-                app.lead.application=app
-                app.lead.save(update_fields=['customer','application','updated_at'])
-                return Response({'detail':'This application already has a linked lead.','lead_id':str(app.lead_id),'lead_code':app.lead.lead_code},status=200)
-            lead=Lead.objects.create(
-                organization=app.organization, lead_code=f'LEAD-{uuid.uuid4().hex[:8].upper()}',
-                contact_name=app.customer.full_name or app.customer.legal_name,
-                phone=app.customer.primary_phone, email=app.customer.email,
-                city=app.customer.city, state=app.customer.state,
-                assigned_to=assigned, created_by=assigned,
-                customer=app.customer, application=app, source=lead_source,
-                expected_amount=app.requested_amount, currency=app.currency,
-                status=Lead.Status.NEW,
-            )
-            app.lead=lead
-            app.save(update_fields=['lead','updated_at'])
-            LeadStatusHistory.objects.create(lead=lead,old_status='',new_status=Lead.Status.NEW,changed_by=request.user,notes='Created from qualified application')
-            if assigned:
+        try:
+            with transaction.atomic():
+                app=FinancialApplication.objects.select_for_update().select_related('customer','assigned_employee','lead').get(pk=app.pk,organization=app.organization)
+                if app.status != FinancialApplication.Status.QUALIFIED:
+                    return Response({'detail':'Only a qualified application can be converted to a lead.'},status=400)
+                if app.lead_id:
+                    lead=app.lead
+                    if lead.organization_id != app.organization_id or (lead.customer_id and lead.customer_id != app.customer_id) or (lead.application_id and lead.application_id != app.id):
+                        return Response({'detail':'The existing linked lead does not match this application customer.'},status=409)
+                    lead.customer=app.customer
+                    lead.application=app
+                    lead.save(update_fields=['customer','application','updated_at'])
+                    return Response({'detail':'This application already has a linked lead.','lead_id':str(lead.id),'lead_code':lead.lead_code},status=200)
+                assigned=app.assigned_employee
+                if not assigned:
+                    return Response({'detail':'Assign this application to an employee before converting it to a lead.'},status=400)
+                if assigned.employment_status != assigned.EmploymentStatus.ACTIVE:
+                    return Response({'detail':'Reassign this application to an active employee before converting it to a lead.'},status=400)
+                from subscriptions.entitlements import enforce_resource_limit
+                enforce_resource_limit(app.organization, 'leads', lock=True)
+                lead_source=app.customer.source.lower().replace(' ','_') if app.customer.source else Lead.Source.OTHER
+                if lead_source not in dict(Lead.Source.choices): lead_source=Lead.Source.OTHER
+                lead=Lead.objects.create(
+                    organization=app.organization, lead_code=f'LEAD-{uuid.uuid4().hex[:8].upper()}',
+                    contact_name=app.customer.full_name or app.customer.legal_name,
+                    phone=app.customer.primary_phone, email=app.customer.email,
+                    city=app.customer.city, state=app.customer.state,
+                    assigned_to=assigned, created_by=assigned,
+                    customer=app.customer, application=app, source=lead_source,
+                    expected_amount=app.requested_amount, currency=app.currency,
+                    status=Lead.Status.NEW,
+                )
+                app.lead=lead
+                app.save(update_fields=['lead','updated_at'])
+                LeadStatusHistory.objects.create(lead=lead,old_status='',new_status=Lead.Status.NEW,changed_by=request.user,notes='Created from qualified application')
                 LeadAssignmentHistory.objects.create(lead=lead,new_owner=assigned,assigned_by=request.user,reason='Assigned from qualified application')
+        except IntegrityError:
+            # The OneToOne application constraint is the final concurrency guard.
+            # If another request won, return its lead instead of creating a duplicate.
+            lead=Lead.objects.filter(organization=app.organization,application_id=app.id).first()
+            if not lead or lead.customer_id != app.customer_id:
+                return Response({'detail':'Application conversion conflicted with another update.'},status=409)
+            return Response({'detail':'This application already has a linked lead.','lead_id':str(lead.id),'lead_code':lead.lead_code},status=200)
         return Response({'detail':'Qualified application converted to a new lead.','lead':LeadSerializer(lead,context={'request':request}).data},status=201)
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):
         return Response(ApplicationStatusHistorySerializer(self.get_object().applicationstatushistory_set.order_by('-changed_at'), many=True).data)
-
-class ApplicationChecklistViewSet(viewsets.ModelViewSet):
-    serializer_class=ApplicationChecklistSerializer
-    permission_classes=[IsAuthenticatedTenant]
-    filterset_fields=['application','status']
-    def get_permissions(self):
-        from permitions.permissions import IsEmployee, IsOrgAdmin
-        if self.action in ('create','update','partial_update'): return [IsAuthenticatedTenant(),IsEmployee()]
-        if self.action=='destroy': return [IsAuthenticatedTenant(),IsOrgAdmin()]
-        return [IsAuthenticatedTenant()]
-    def get_queryset(self):
-        org=get_user_organization(self.request.user,self.request)
-        if not org:return ApplicationChecklist.objects.none()
-        qs=ApplicationChecklist.objects.filter(application__organization=org)
-        ctx=get_user_role_context(self.request.user,self.request); level=ctx['hierarchy_level']; user=self.request.user
-        if level>=90:return qs
-        if level>=70:
-            manager=user.manager_set.first() if hasattr(user,'manager_set') else None; depts=manager.managed_departments.all() if manager else []
-            return qs.filter(application__assigned_employee__department__in=depts)
-        if level>=50:
-            profile=user.teamlead_profiles.first() if hasattr(user,'teamlead_profiles') else None; teams=profile.teams.all() if profile else []
-            return qs.filter(application__assigned_employee__team__in=teams)
-        employee=getattr(user,'employee',None)
-        return qs.filter(application__assigned_employee=employee) if employee else qs.none()
-    def perform_create(self, serializer): serializer.save(updated_by=self.request.user)
-    def perform_update(self, serializer): serializer.save(updated_by=self.request.user)

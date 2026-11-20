@@ -1,7 +1,7 @@
 import uuid
 from django.db import transaction
 from rest_framework import serializers
-from customers.models import Customer, CustomerTag
+from customers.models import Customer, CustomerTag, CustomerAssignmentHistory
 from organizations.tenant import get_user_organization
 from organizations.tenant import get_user_role_context
 
@@ -10,6 +10,31 @@ class CustomerTagSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomerTag
         fields = ['id', 'tag']
+
+
+class CustomerAssignmentHistorySerializer(serializers.ModelSerializer):
+    previous_owner_name = serializers.SerializerMethodField()
+    new_owner_name = serializers.SerializerMethodField()
+    changed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomerAssignmentHistory
+        fields = ['id', 'previous_owner_name', 'new_owner_name', 'changed_by_name', 'reason', 'changed_at']
+
+    def get_previous_owner_name(self, obj):
+        return self._employee_name(obj.previous_owner)
+
+    def get_new_owner_name(self, obj):
+        return self._employee_name(obj.new_owner)
+
+    def get_changed_by_name(self, obj):
+        return obj.changed_by.get_full_name() or obj.changed_by.username
+
+    @staticmethod
+    def _employee_name(employee):
+        if not employee or not employee.user:
+            return None
+        return employee.user.get_full_name() or employee.user.username
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -27,6 +52,7 @@ class CustomerSerializer(serializers.ModelSerializer):
     )
     created_by_name = serializers.SerializerMethodField(read_only=True)
     assigned_to_name = serializers.SerializerMethodField(read_only=True)
+    change_reason = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Customer
@@ -57,6 +83,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             'created_by',
             'assigned_to',
             'assigned_to_name',
+            'change_reason',
             'created_by_name',
             'created_at',
             'updated_at',
@@ -87,6 +114,8 @@ class CustomerSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'legal_name':'Business legal name is required.'})
         assigned=attrs.get('assigned_to',getattr(self.instance,'assigned_to',None))
         if assigned and (not org or assigned.organization_id!=org.id): raise serializers.ValidationError({'assigned_to':'Employee must belong to your organization.'})
+        if assigned and (not self.instance or assigned != self.instance.assigned_to) and assigned.employment_status != assigned.EmploymentStatus.ACTIVE:
+            raise serializers.ValidationError({'assigned_to':'Assign customers only to active employees.'})
         ctx=get_user_role_context(user,request); level=ctx['hierarchy_level']
         if level>=70 and level<90 and assigned:
             manager=user.manager_set.first() if hasattr(user,'manager_set') else None
@@ -108,6 +137,7 @@ class CustomerSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         tag_list = validated_data.pop('tag_list', [])
+        change_reason = validated_data.pop('change_reason', '')
         request = self.context.get('request')
         user = request.user
         org = get_user_organization(user, request)
@@ -124,14 +154,31 @@ class CustomerSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             customer = super().create(validated_data)
+            if customer.assigned_to_id:
+                CustomerAssignmentHistory.objects.create(
+                    customer=customer,
+                    new_owner=customer.assigned_to,
+                    changed_by=user,
+                    reason=change_reason or 'Initial customer assignment',
+                )
             for t in tag_list:
                 CustomerTag.objects.create(customer=customer, tag=t)
             return customer
 
     def update(self, instance, validated_data):
         tag_list = validated_data.pop('tag_list', None)
+        change_reason = validated_data.pop('change_reason', '')
+        previous_owner = instance.assigned_to
         with transaction.atomic():
             customer = super().update(instance, validated_data)
+            if previous_owner != customer.assigned_to:
+                CustomerAssignmentHistory.objects.create(
+                    customer=customer,
+                    previous_owner=previous_owner,
+                    new_owner=customer.assigned_to,
+                    changed_by=self.context['request'].user,
+                    reason=change_reason or 'Customer assignment changed',
+                )
             if tag_list is not None:
                 customer.tags.all().delete()
                 for t in tag_list:

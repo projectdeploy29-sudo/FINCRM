@@ -55,17 +55,10 @@ class Command(BaseCommand):
             ("applications", "view", "applications:view", "View financial applications"),
             ("applications", "create", "applications:create", "Submit loan/insurance application"),
             ("applications", "edit", "applications:edit", "Modify application info"),
-            ("applications", "review", "applications:review", "Review application documents & KYC"),
+            ("applications", "review", "applications:review", "Review financial application details"),
             ("applications", "approve", "applications:approve", "Approve financial application"),
             ("applications", "disburse", "applications:disburse", "Mark application disbursed"),
             ("applications", "reject", "applications:reject", "Reject application"),
-
-            # Documents & KYC
-            ("documents", "view", "documents:view", "View uploaded documents"),
-            ("documents", "upload", "documents:upload", "Upload customer/application documents"),
-            ("documents", "download", "documents:download", "Download document files"),
-            ("documents", "verify", "documents:verify", "Verify and accept submitted documents"),
-            ("documents", "reject", "documents:reject", "Reject uploaded document"),
 
             # Finance & Repayments
             ("finance", "view_schedules", "finance:view_schedules", "View repayment EMI/premium schedules"),
@@ -130,7 +123,6 @@ class Command(BaseCommand):
                     "customers:view", "customers:create", "customers:edit", "customers:change_status",
                     "leads:view", "leads:create", "leads:edit", "leads:assign", "leads:convert",
                     "applications:view", "applications:create", "applications:edit", "applications:review", "applications:approve", "applications:reject",
-                    "documents:view", "documents:upload", "documents:download", "documents:verify", "documents:reject",
                     "finance:view_schedules", "finance:record_payment", "finance:verify_payment",
                     "tasks:view", "tasks:create", "tasks:assign", "tasks:update",
                     "followups:view", "followups:create", "followups:update",
@@ -148,7 +140,6 @@ class Command(BaseCommand):
                     "customers:view", "customers:create", "customers:edit", "customers:change_status",
                     "leads:view", "leads:create", "leads:edit", "leads:assign", "leads:convert",
                     "applications:view", "applications:create", "applications:edit",
-                    "documents:view", "documents:upload", "documents:download", "documents:verify", "documents:reject",
                     "applications:review", "applications:approve", "applications:disburse", "applications:reject",
                     "finance:view_schedules", "finance:manage_schedules", "finance:record_payment", "finance:verify_payment",
                     "tasks:view", "tasks:create", "tasks:assign", "tasks:update",
@@ -165,7 +156,6 @@ class Command(BaseCommand):
                     "customers:view", "customers:create", "customers:edit", "customers:change_status",
                     "leads:view", "leads:create", "leads:edit", "leads:convert",
                     "applications:view", "applications:create", "applications:edit",
-                    "documents:view", "documents:upload", "documents:download",
                     "finance:view_schedules", "finance:record_payment",
                     "tasks:view", "tasks:update",
                     "followups:view", "followups:create", "followups:update",

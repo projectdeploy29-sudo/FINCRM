@@ -14,6 +14,7 @@ from organizations.tenant import get_user_organization, get_user_role_context
 from permitions.permissions import IsAuthenticatedTenant
 from tasks.models import ApplicationFollowUp, CustomerFollowUp, LeadFollowUp, Task
 from organizations.date_filters import apply_date_range
+from organizations.dates import organization_local_date
 
 
 def scoped_work(request):
@@ -24,6 +25,8 @@ def scoped_work(request):
     customers = Customer.objects.filter(organization=org)
     applications = FinancialApplication.objects.filter(organization=org)
     tasks = Task.objects.filter(organization=org)
+    if not org or level < 30:
+        return org, leads.none(), customers.none(), applications.none(), tasks.none()
     if level >= 90:
         return org, leads, customers, applications, tasks
     if level >= 70:
@@ -53,12 +56,24 @@ def scoped_work(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticatedTenant])
 def pipeline(request):
+    if get_user_role_context(request.user, request)['hierarchy_level'] < 30:
+        return Response({'detail': 'A staff account is required to view the sales pipeline.'}, status=403)
     org, leads, _, applications, _ = scoped_work(request)
     if not org:
         return Response({'detail': 'Organization not found.'}, status=400)
     scoped_leads = leads
     leads = apply_date_range(leads, request, 'created_at')
-    today = timezone.localdate()
+    today = organization_local_date(request)
+    month_start = today.replace(day=1)
+    month_end = today.replace(day=monthrange(today.year, today.month)[1])
+    scoped_payments = RepaymentPayment.objects.filter(
+        organization=org,
+        repayment_schedule__lead__in=scoped_leads,
+        verification_status='VERIFIED',
+    )
+    paid_this_month = scoped_payments.filter(
+        payment_date__gte=month_start, payment_date__lte=month_end,
+    ).aggregate(total=Sum('amount'))['total'] or 0
     if request.query_params.get('start_date') or request.query_params.get('end_date'):
         month_start = parse_date(request.query_params.get('start_date') or '') or today
         month_end = parse_date(request.query_params.get('end_date') or '') or today
@@ -71,7 +86,12 @@ def pipeline(request):
     rows = []
     for lead in leads.order_by('-created_at'):
         related = schedules.filter(lead=lead)
-        overdue = any(schedule.is_overdue for schedule in related.filter(due_date__lt=today, status__in=['PENDING', 'PARTIAL']))
+        overdue = any(
+            schedule.outstanding_amount > 0
+            for schedule in related.filter(
+                due_date__lt=today, status__in=['PENDING', 'PARTIAL'],
+            )
+        )
         due_this_month = related.filter(due_date__gte=month_start, due_date__lte=month_end).exists()
         paid_in_range = payments.filter(repayment_schedule__lead=lead, verification_status='VERIFIED').exists()
         payment_status = 'overdue' if overdue else 'paid' if paid_in_range else 'not_paid'
@@ -85,7 +105,7 @@ def pipeline(request):
     return Response({
         'total_leads': len(rows),
         'total_value': leads.aggregate(total=Sum('expected_amount'))['total'] or 0,
-        'payments_this_month': in_range,
+        'payments_this_month': paid_this_month,
         'payments_in_range': in_range,
         'paid': sum(row['payment_status'] == 'paid' for row in rows),
         'not_paid': sum(row['payment_status'] == 'not_paid' for row in rows),
@@ -97,6 +117,8 @@ def pipeline(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticatedTenant])
 def report_summary(request):
+    if get_user_role_context(request.user, request)['hierarchy_level'] < 30:
+        return Response({'detail': 'A staff account is required to view reports.'}, status=403)
     org, leads, customers, applications, tasks = scoped_work(request)
     if not org:
         return Response({'detail': 'Organization not found.'}, status=400)
@@ -108,18 +130,27 @@ def report_summary(request):
     followups = apply_date_range(CustomerFollowUp.objects.filter(organization=org, customer__in=scoped_customers), request, 'scheduled_at').count()
     followups += apply_date_range(LeadFollowUp.objects.filter(organization=org, lead__in=scoped_leads), request, 'scheduled_at').count()
     followups += apply_date_range(ApplicationFollowUp.objects.filter(organization=org, application__in=scoped_applications), request, 'scheduled_at').count()
-    verified = apply_date_range(RepaymentPayment.objects.filter(organization=org, repayment_schedule__lead__in=scoped_leads, verification_status='VERIFIED'), request, 'payment_date')
-    today = timezone.localdate()
+    all_verified = RepaymentPayment.objects.filter(
+        organization=org,
+        repayment_schedule__lead__in=scoped_leads,
+        verification_status='VERIFIED',
+    )
+    verified = apply_date_range(all_verified, request, 'payment_date')
+    today = organization_local_date(request)
+    month_start = today.replace(day=1)
+    month_end = today.replace(day=monthrange(today.year, today.month)[1])
+    monthly_verified = all_verified.filter(payment_date__gte=month_start, payment_date__lte=month_end)
+    qualified_leads = leads.filter(status=Lead.Status.QUALIFIED)
     return Response({
         'leads_by_status': list(leads.values('status').annotate(count=Count('id')).order_by('status')),
         'applications_by_status': list(applications.values('status').annotate(count=Count('id')).order_by('status')),
         'tasks_by_status': list(tasks.values('status').annotate(count=Count('id')).order_by('status')),
         'active_leads': leads.exclude(status__in=['unqualified']).count(),
-        'won': leads.filter(converted_customer__isnull=False).count(),
+        'won': qualified_leads.count(),
         'customers': customers.count(),
         'followups': followups,
         'tasks_overdue': tasks.filter(due_date__lt=timezone.now()).exclude(status__in=['COMPLETED', 'CANCELLED']).count(),
-        'revenue_this_month': verified.aggregate(total=Sum('amount'))['total'] or 0,
+        'revenue_this_month': monthly_verified.aggregate(total=Sum('amount'))['total'] or 0,
         'revenue_in_range': verified.aggregate(total=Sum('amount'))['total'] or 0,
-        'revenue_total': verified.aggregate(total=Sum('amount'))['total'] or 0,
+        'revenue_total': all_verified.aggregate(total=Sum('amount'))['total'] or 0,
     })

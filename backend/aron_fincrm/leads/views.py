@@ -1,6 +1,8 @@
 import uuid
+from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -192,6 +194,7 @@ class LeadViewSet(viewsets.ModelViewSet):
         from tasks.models import CostomerFollowUp, LeadFollowUp, applicationFollowUp
         from django.db.models import Sum
         from django.utils import timezone
+        from organizations.dates import organization_local_date
         app=lead.application
         schedules=RepaymentSchedule.objects.filter(organization=lead.organization).filter(Q(lead=lead)|Q(application=app)).distinct().order_by('due_date') if app else RepaymentSchedule.objects.filter(organization=lead.organization,lead=lead).order_by('due_date')
         schedule_ids=list(schedules.values_list('id',flat=True))
@@ -199,8 +202,9 @@ class LeadViewSet(viewsets.ModelViewSet):
         verified_paid=payments.filter(verification_status='VERIFIED').aggregate(total=Sum('amount'))['total'] or 0
         remaining=sum((row.outstanding_amount for row in schedules),0)
         next_schedule=schedules.exclude(status__in=['PAID','WAIVED','CANCELLED']).first()
-        upcoming_payments=[{'id':str(row.pk),'installment_number':row.installment_number,'amount':str(row.outstanding_amount),'due_date':row.due_date,'status':row.status} for row in schedules.exclude(status__in=['PAID','WAIVED','CANCELLED']) if row.due_date>=timezone.localdate()]
-        overdue_payments=[{'id':str(row.pk),'installment_number':row.installment_number,'amount':str(row.outstanding_amount),'due_date':row.due_date,'status':row.status} for row in schedules.exclude(status__in=['PAID','WAIVED','CANCELLED']) if row.due_date<timezone.localdate()]
+        local_today=organization_local_date(request)
+        upcoming_payments=[{'id':str(row.pk),'installment_number':row.installment_number,'amount':str(row.outstanding_amount),'due_date':row.due_date,'status':row.status} for row in schedules.exclude(status__in=['PAID','WAIVED','CANCELLED']) if row.due_date>=local_today]
+        overdue_payments=[{'id':str(row.pk),'installment_number':row.installment_number,'amount':str(row.outstanding_amount),'due_date':row.due_date,'status':row.status} for row in schedules.exclude(status__in=['PAID','WAIVED','CANCELLED']) if row.due_date<local_today]
         payment_history=[{'id':str(row.pk),'amount':str(row.amount),'payment_date':row.payment_date,'payment_method':row.payment_method,'status':row.verification_status,'transaction_reference':row.transaction_reference or ''} for row in payments]
         followup_rows=[]
         followup_sets=[]
@@ -235,17 +239,149 @@ class LeadViewSet(viewsets.ModelViewSet):
 
     @action(detail=True,methods=['post'])
     def transition(self,request,pk=None):
-        lead=self.get_object(); new=request.data.get('status')
-        allowed={Lead.Status.NEW:{Lead.Status.CONTACTED},Lead.Status.CONTACTED:{Lead.Status.QUALIFIED}}
-        if lead.converted_customer_id:return Response({'detail':'Converted leads cannot change status.'},status=400)
-        if new == Lead.Status.QUALIFIED and (not lead.application_id or lead.application.status not in ('disbursed','completed') or not lead.application.disbursed_amount or not lead.application.repayment_schedules.exists()):
-            return Response({'detail':'A lead can be marked Qualified only after the loan is disbursed and its repayment schedule is created.'},status=400)
-        if new not in allowed.get(lead.status,set()):return Response({'detail':f'Cannot move from {lead.status} to {new}.'},status=400)
-        old=lead.status; lead.status=new
+        from applications.models import ApplicationStatusHistory, FinancialApplication
+
+        lead = self.get_object()
+        new = request.data.get('status')
+        allowed = {
+            Lead.Status.NEW: {Lead.Status.CONTACTED},
+            Lead.Status.CONTACTED: {Lead.Status.DISBURSED},
+            Lead.Status.DISBURSED: {Lead.Status.QUALIFIED},
+        }
+        if lead.converted_customer_id:
+            return Response({'detail': 'Converted leads cannot change status.'}, status=400)
+        if new not in allowed.get(lead.status, set()):
+            return Response({'detail': f'Cannot move from {lead.status} to {new}.'}, status=400)
+
+        if new == Lead.Status.QUALIFIED:
+            application = lead.application if lead.application_id else None
+            if (
+                not application
+                or application.status not in ('disbursed', 'completed')
+                or not application.disbursed_amount
+                or not application.repayment_schedules.exists()
+            ):
+                return Response({
+                    'detail': 'Generate a repayment schedule for the disbursed application before marking this lead Qualified.'
+                }, status=400)
+
+        notes = str(request.data.get('notes', '') or '')
         with transaction.atomic():
-            lead.save(update_fields=['status','updated_at'])
-            LeadStatusHistory.objects.create(lead=lead,old_status=old,new_status=new,changed_by=request.user,notes=request.data.get('notes',''))
-        return Response(LeadSerializer(lead,context={'request':request}).data)
+            lead = Lead.objects.select_for_update().select_related('application').get(
+                pk=lead.pk, organization=lead.organization,
+            )
+            old_lead_status = lead.status
+            if new == Lead.Status.DISBURSED:
+                role = get_user_role_context(request.user, request)
+                if role['hierarchy_level'] < 30:
+                    return Response({'detail': 'A staff member must disburse the linked application.'}, status=403)
+                if not lead.application_id:
+                    return Response({'detail': 'This lead has no linked application to disburse.'}, status=400)
+                application = FinancialApplication.objects.select_for_update().filter(
+                    pk=lead.application_id, organization=lead.organization,
+                ).first()
+                if not application or application.lead_id != lead.id:
+                    return Response({'detail': 'The linked application does not match this lead.'}, status=400)
+
+                approved_amount = application.approved_amount
+                annual_rate = application.annual_interest_rate
+                tenure = application.loan_tenure_months
+                monthly_amount = application.monthly_repayment_amount
+                approve_application = application.status == FinancialApplication.Status.QUALIFIED
+                if approve_application:
+                    raw_approved = request.data.get('approved_amount')
+                    if raw_approved in (None, ''):
+                        return Response({'detail': 'Enter the amount approved for this loan.'}, status=400)
+                    try:
+                        approved_amount = Decimal(str(raw_approved))
+                    except (InvalidOperation, TypeError):
+                        return Response({'detail': 'Provide a valid approved_amount.'}, status=400)
+                    if approved_amount <= 0 or (application.requested_amount and approved_amount > application.requested_amount):
+                        return Response({'detail': 'Approved amount must be positive and cannot exceed the requested amount.'}, status=400)
+
+                    raw_rate = request.data.get('annual_interest_rate')
+                    if raw_rate not in (None, ''):
+                        try:
+                            annual_rate = Decimal(str(raw_rate))
+                        except (InvalidOperation, TypeError):
+                            return Response({'detail': 'Provide a valid annual_interest_rate.'}, status=400)
+                        if annual_rate < 0 or annual_rate > 100:
+                            return Response({'detail': 'annual_interest_rate must be between 0 and 100.'}, status=400)
+
+                    raw_tenure = request.data.get('loan_tenure_months', tenure)
+                    if raw_tenure in (None, ''):
+                        return Response({'detail': 'Enter the approved loan tenure in months.'}, status=400)
+                    try:
+                        tenure = int(raw_tenure)
+                    except (TypeError, ValueError):
+                        return Response({'detail': 'loan_tenure_months must be a positive whole number.'}, status=400)
+                    if tenure < 1 or tenure > 600:
+                        return Response({'detail': 'loan_tenure_months must be between 1 and 600.'}, status=400)
+
+                    monthly_rate = (annual_rate or Decimal('0')) / Decimal('1200')
+                    if monthly_rate:
+                        factor = (Decimal('1') + monthly_rate) ** tenure
+                        monthly_amount = (approved_amount * monthly_rate * factor / (factor - 1)).quantize(Decimal('0.01'))
+                    else:
+                        monthly_amount = (approved_amount / tenure).quantize(Decimal('0.01'))
+                elif application.status == FinancialApplication.Status.APPROVED:
+                    if not approved_amount or not tenure:
+                        return Response({'detail': 'The linked application needs an approved amount and loan tenure before disbursement.'}, status=400)
+                elif application.status not in (FinancialApplication.Status.DISBURSED, FinancialApplication.Status.COMPLETED):
+                    return Response({'detail': 'Move the linked application to Qualified before disbursing it.'}, status=400)
+
+                disbursed_amount = application.disbursed_amount
+                disburse_application = application.status not in (
+                    FinancialApplication.Status.DISBURSED,
+                    FinancialApplication.Status.COMPLETED,
+                )
+                if disburse_application:
+                    raw_disbursed = request.data.get('disbursed_amount')
+                    if raw_disbursed in (None, ''):
+                        return Response({'detail': 'Enter the actual amount disbursed to the customer.'}, status=400)
+                    try:
+                        disbursed_amount = Decimal(str(raw_disbursed))
+                    except (InvalidOperation, TypeError):
+                        return Response({'detail': 'Provide a valid disbursed_amount.'}, status=400)
+                    if disbursed_amount <= 0 or (approved_amount and disbursed_amount > approved_amount):
+                        return Response({'detail': 'Disbursed amount must be positive and cannot exceed the approved amount.'}, status=400)
+                elif not disbursed_amount:
+                    return Response({'detail': 'The linked application has no recorded disbursed amount.'}, status=400)
+
+                if approve_application:
+                    old_application_status = application.status
+                    application.status = FinancialApplication.Status.APPROVED
+                    application.approved_amount = approved_amount
+                    application.annual_interest_rate = annual_rate
+                    application.loan_tenure_months = tenure
+                    application.monthly_repayment_amount = monthly_amount
+                    application.save(update_fields=[
+                        'status', 'approved_amount', 'annual_interest_rate',
+                        'loan_tenure_months', 'monthly_repayment_amount', 'updated_at',
+                    ])
+                    ApplicationStatusHistory.objects.create(
+                        application=application, old_status=old_application_status,
+                        new_status=application.status, changed_by=request.user, notes=notes,
+                    )
+
+                if disburse_application:
+                    old_application_status = application.status
+                    application.status = FinancialApplication.Status.DISBURSED
+                    application.disbursed_amount = disbursed_amount
+                    application.disbursed_at = timezone.now()
+                    application.save(update_fields=['status', 'disbursed_amount', 'disbursed_at', 'updated_at'])
+                    ApplicationStatusHistory.objects.create(
+                        application=application, old_status=old_application_status,
+                        new_status=application.status, changed_by=request.user, notes=notes,
+                    )
+
+            lead.status = new
+            lead.save(update_fields=['status', 'updated_at'])
+            LeadStatusHistory.objects.create(
+                lead=lead, old_status=old_lead_status, new_status=new,
+                changed_by=request.user, notes=notes,
+            )
+        return Response(LeadSerializer(lead, context={'request': request}).data)
 
     @action(detail=True,methods=['get'],url_path='status-history')
     def status_history(self,request,pk=None):

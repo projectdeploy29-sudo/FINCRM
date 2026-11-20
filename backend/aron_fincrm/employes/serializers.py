@@ -11,7 +11,12 @@ from permitions.models import Role
 from organizations.tenant import get_user_organization, get_user_role_context
 
 User = get_user_model()
-EMPLOYEE_ROLE_CODES = {'general_employee'}
+ELEVATED_ROLE_CODES = {'super_admin', 'org_admin', 'manager', 'team_lead', 'lead_portal'}
+
+
+def is_employee_role(role):
+    """Employee profiles can carry multiple roles, all capped at employee scope."""
+    return bool(role and role.code not in ELEVATED_ROLE_CODES)
 
 
 class EmployeeAssignmentHistorySerializer(serializers.ModelSerializer):
@@ -119,17 +124,51 @@ class EmployeeSerializer(serializers.ModelSerializer):
         for name,obj in checks:
             if obj and name!='role' and obj.organization_id!=org.id: raise serializers.ValidationError({name:'Choose a record in your organization.'})
             if obj and name=='role' and obj.organization_id not in (None,org.id): raise serializers.ValidationError({name:'Choose a system or organization role.'})
-        team=attrs.get('team'); dept=attrs.get('department')
+        assignment_changed=not self.instance or any(
+            key in attrs and attrs[key] != getattr(self.instance,key)
+            for key in ('department','team')
+        )
+        if assignment_changed and attrs.get('department',getattr(self.instance,'department',None)) and not attrs.get('department',getattr(self.instance,'department',None)).is_active:
+            raise serializers.ValidationError({'department':'Choose an active department.'})
+        if assignment_changed and attrs.get('team',getattr(self.instance,'team',None)) and not attrs.get('team',getattr(self.instance,'team',None)).is_active:
+            raise serializers.ValidationError({'team':'Choose an active team.'})
+        team=attrs.get('team', getattr(self.instance, 'team', None)); dept=attrs.get('department', getattr(self.instance, 'department', None))
         if team and dept and team.department_id!=dept.id: raise serializers.ValidationError({'team':'Team must belong to the selected department.'})
+        ctx=get_user_role_context(req.user,req); level=ctx['hierarchy_level']; user=req.user
+        if 70<=level<90:
+            manager=user.manager_set.first() if hasattr(user,'manager_set') else None
+            departments=manager.managed_departments.all() if manager else Department.objects.none()
+            if dept and not departments.filter(pk=dept.pk).exists():
+                raise serializers.ValidationError({'department':'Choose a department managed by you.'})
+        elif 50<=level<70:
+            profile=user.teamlead_profiles.first() if hasattr(user,'teamlead_profiles') else None
+            led_teams=profile.teams.all() if profile else Team.objects.none()
+            if not team or not led_teams.filter(pk=team.pk).exists():
+                raise serializers.ValidationError({'team':'Choose a team assigned to you.'})
+        reporting_manager=attrs.get('manager',getattr(self.instance,'manager',None))
+        if reporting_manager and reporting_manager.employment_status!=Employee.EmploymentStatus.ACTIVE:
+            raise serializers.ValidationError({'manager':'Choose an active reporting employee.'})
+        if reporting_manager and dept and reporting_manager.department_id!=dept.id:
+            raise serializers.ValidationError({'manager':'Reporting employee must belong to the selected department.'})
+        if reporting_manager and self.instance:
+            if reporting_manager.pk==self.instance.pk:
+                raise serializers.ValidationError({'manager':'An employee cannot report to themselves.'})
+            seen=set()
+            cursor=reporting_manager
+            while cursor and cursor.pk not in seen:
+                if cursor.pk==self.instance.pk:
+                    raise serializers.ValidationError({'manager':'This reporting change would create a hierarchy cycle.'})
+                seen.add(cursor.pk)
+                cursor=cursor.manager
         role_ids = attrs.get('role_ids')
         if role_ids is not None:
             role_map = {role.id:role for role in Role.objects.filter(id__in=role_ids).filter(Q(organization=org)|Q(organization__isnull=True))}
             if len(role_map) != len(set(role_ids)):
                 raise serializers.ValidationError({'role_ids':'Choose only system or organization roles.'})
             attrs['_selected_roles'] = [role_map[role_id] for role_id in role_ids]
-            if any(role.code not in EMPLOYEE_ROLE_CODES for role in attrs['_selected_roles']):
+            if any(not is_employee_role(role) for role in attrs['_selected_roles']):
                 raise serializers.ValidationError({'role_ids':'Employees can only be assigned employee-level roles.'})
-        elif attrs.get('role') and attrs['role'].code not in EMPLOYEE_ROLE_CODES:
+        elif attrs.get('role') and not is_employee_role(attrs['role']):
             raise serializers.ValidationError({'role':'Choose an employee-level role.'})
         return attrs
 
@@ -217,6 +256,12 @@ class ManagerSerializer(serializers.ModelSerializer):
     def get_managed_departments(self, obj):
         return list(obj.managed_departments.values('id', 'name'))
 
+    def update(self, instance, validated_data):
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+            sync_staff_account_status(instance)
+        return instance
+
 
 class TeamLeadSerializer(serializers.ModelSerializer):
     user_details = serializers.SerializerMethodField(read_only=True)
@@ -266,6 +311,36 @@ class TeamLeadSerializer(serializers.ModelSerializer):
 
     def get_led_teams(self, obj):
         return list(obj.teams.values('id', 'name'))
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        organization = get_user_organization(request.user, request) if request else None
+        department = attrs.get('department')
+        manager = attrs.get('manager')
+        if department and (not organization or department.organization_id != organization.id):
+            raise serializers.ValidationError({'department': 'Department must belong to your organization.'})
+        if department and not department.is_active:
+            raise serializers.ValidationError({'department': 'Choose an active department.'})
+        if manager and (not organization or manager.organization_id != organization.id):
+            raise serializers.ValidationError({'manager': 'Manager must belong to your organization.'})
+        if manager and manager.employment_status != Manager.ManagerStatus.ACTIVE:
+            raise serializers.ValidationError({'manager': 'Choose an active manager.'})
+        return attrs
+
+    def update(self, instance, validated_data):
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+            sync_staff_account_status(instance)
+        return instance
+
+
+def sync_staff_account_status(profile):
+    """Keep staff account login state aligned with employment status."""
+    user = profile.user
+    should_be_active = profile.employment_status == 'active'
+    if user and user.is_active != should_be_active:
+        user.is_active = should_be_active
+        user.save(update_fields=['is_active'])
 
 
 class StaffOnboardingSerializer(serializers.Serializer):
@@ -330,22 +405,34 @@ class StaffOnboardingSerializer(serializers.Serializer):
         team=Team.objects.filter(id=team_id,organization=org).first() if team_id else None
         if department_id and not department: raise serializers.ValidationError({'department_id':'Department was not found in your organization.'})
         if team_id and not team: raise serializers.ValidationError({'team_id':'Team was not found in your organization.'})
+        if department and not department.is_active: raise serializers.ValidationError({'department_id':'Choose an active department.'})
+        if team and not team.is_active: raise serializers.ValidationError({'team_id':'Choose an active team.'})
         if team and department and team.department_id!=department.id: raise serializers.ValidationError({'team_id':'Team must belong to the selected department.'})
         if staff_type=='team_lead' and not department:
             raise serializers.ValidationError({'department_id':'Choose the team lead’s department.'})
         if role_id and not Role.objects.filter(id=role_id).filter(Q(organization=org)|Q(organization__isnull=True)).exists(): raise serializers.ValidationError({'role_id':'Role was not found in your organization.'})
         if role_id:
             selected_role=Role.objects.filter(id=role_id).first()
-            if selected_role and selected_role.code not in EMPLOYEE_ROLE_CODES: raise serializers.ValidationError({'role_id':'Employees can only be assigned employee-level roles.'})
+            if selected_role and not is_employee_role(selected_role): raise serializers.ValidationError({'role_id':'Employees can only be assigned employee-level roles.'})
         if attrs.get('role_ids'):
             role_map={role.id:role for role in Role.objects.filter(id__in=attrs['role_ids']).filter(Q(organization=org)|Q(organization__isnull=True))}
             if len(role_map)!=len(set(attrs['role_ids'])): raise serializers.ValidationError({'role_ids':'Choose only system or organization roles.'})
             attrs['_selected_roles']=[role_map[role_id] for role_id in attrs['role_ids']]
-            if any(role.code not in EMPLOYEE_ROLE_CODES for role in attrs['_selected_roles']): raise serializers.ValidationError({'role_ids':'Employees can only be assigned employee-level roles.'})
-        if staff_type=='team_lead' and reporting_id and not Manager.objects.filter(id=reporting_id,organization=org).exists():
+            if any(not is_employee_role(role) for role in attrs['_selected_roles']): raise serializers.ValidationError({'role_ids':'Employees can only be assigned employee-level roles.'})
+        reporting_manager=Manager.objects.filter(id=reporting_id,organization=org).first() if staff_type=='team_lead' and reporting_id else None
+        if staff_type=='team_lead' and reporting_id and not reporting_manager:
             raise serializers.ValidationError({'reporting_manager_id':'Manager was not found in your organization.'})
-        if staff_type=='employee' and reporting_id and not Employee.objects.filter(id=reporting_id,organization=org).exists():
+        if reporting_manager and reporting_manager.employment_status!=Manager.ManagerStatus.ACTIVE:
+            raise serializers.ValidationError({'reporting_manager_id':'Choose an active manager.'})
+        reporting_employee=Employee.objects.filter(id=reporting_id,organization=org).first() if staff_type=='employee' and reporting_id else None
+        if staff_type=='employee' and reporting_id and not reporting_employee:
             raise serializers.ValidationError({'reporting_employee_id':'Reporting employee was not found in your organization.'})
+        if reporting_employee and reporting_employee.employment_status!=Employee.EmploymentStatus.ACTIVE:
+            raise serializers.ValidationError({'reporting_employee_id':'Choose an active reporting employee.'})
+        if reporting_employee and department and reporting_employee.department_id!=department.id:
+            raise serializers.ValidationError({'reporting_employee_id':'Reporting employee must belong to the selected department.'})
+        if reporting_employee and role_ctx['hierarchy_level']<70 and team and reporting_employee.team_id!=team.id:
+            raise serializers.ValidationError({'reporting_employee_id':'Reporting employee must belong to the selected team.'})
 
         # Enforce Hierarchy Creation Rights:
         # 1. Org Admin / Super Admin can create Manager, Team Lead, Employee
@@ -395,19 +482,11 @@ class StaffOnboardingSerializer(serializers.Serializer):
             department=team.department
             attrs['department_id']=department.pk
             selected=attrs.get('_selected_roles',[])
-            if any(role.code!='general_employee' for role in selected):
-                raise serializers.ValidationError({'role_ids':'Employees may only assign the General Employee role.'})
+            if any(not is_employee_role(role) for role in selected):
+                raise serializers.ValidationError({'role_ids':'Employees may only assign employee-level roles.'})
 
-        # Check Subscription Tier Employee Limits
-        from subscriptions.models import Subscription
-        active_sub = Subscription.objects.filter(organization=org, status__in=['active','trialing']).order_by('-created_at').first()
-        if active_sub and active_sub.plan:
-            max_allowed = active_sub.plan.max_employees
-            current_total = Employee.objects.filter(organization=org).count() + Manager.objects.filter(organization=org).count() + TeamLead.objects.filter(organization=org).count()
-            if max_allowed is not None and current_total >= max_allowed:
-                raise serializers.ValidationError({
-                    "subscription": f"Plan limit reached! Your current plan allows maximum {max_allowed} staff members. Please upgrade your subscription."
-                })
+        from subscriptions.entitlements import enforce_resource_limit
+        enforce_resource_limit(org, 'employees')
 
         return attrs
 
@@ -445,6 +524,8 @@ class StaffOnboardingSerializer(serializers.Serializer):
         reporting_employee_id = validated_data.pop('reporting_employee_id', reporting_manager_id)
 
         with transaction.atomic():
+            from subscriptions.entitlements import enforce_resource_limit
+            enforce_resource_limit(org, 'employees', lock=True)
             # 1. Create Base User
             user = User.objects.create_user(
                 username=username,

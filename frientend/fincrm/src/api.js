@@ -16,8 +16,7 @@ export function createApi(token, onUnauthorized = () => {}, activeRole = '') {
     const headers = new Headers(options.headers || {})
     if (token) headers.set('Authorization', `Bearer ${token}`)
     if (activeRole) headers.set('X-Active-Role', activeRole)
-    const isForm = options.body instanceof FormData
-    if (!isForm && options.body !== undefined) headers.set('Content-Type', 'application/json')
+    if (options.body !== undefined) headers.set('Content-Type', 'application/json')
     const url = (value) => /^https?:\/\//.test(value) ? value : `${API_ROOT}${value}`
     let response = await fetch(url(path), { ...options, headers })
     if (response.status === 401) {
@@ -51,15 +50,7 @@ export function createApi(token, onUnauthorized = () => {}, activeRole = '') {
       }
       return items
     },
-    download: async (path, filename = 'download') => {
-      const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      if (activeRole) headers['X-Active-Role'] = activeRole
-      const response = await fetch(/^https?:\/\//.test(path) ? path : `${API_ROOT}${path}`, { headers })
-      if (!response.ok) throw new Error(`Download failed (${response.status})`)
-      const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a')
-      link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
-    },
-    post: (path, body) => request(path, { method: 'POST', body: body instanceof FormData ? body : JSON.stringify(body) }),
+    post: (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) }),
     patch: (path, body) => request(path, { method: 'PATCH', body: JSON.stringify(body) }),
     delete: (path) => request(path, { method: 'DELETE' }),
   }

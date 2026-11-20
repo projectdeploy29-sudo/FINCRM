@@ -56,6 +56,7 @@ class LeadStatusHistorySerializer(serializers.ModelSerializer):
 
 class LeadSerializer(serializers.ModelSerializer):
     lead_code = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    assignment_reason = serializers.CharField(write_only=True, required=False, allow_blank=True)
     assigned_to_name = serializers.SerializerMethodField(read_only=True)
     address = serializers.SerializerMethodField(read_only=True)
     portal_username = serializers.CharField(source='portal_user.username', read_only=True, allow_null=True)
@@ -64,6 +65,7 @@ class LeadSerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField(read_only=True)
     customer_name = serializers.SerializerMethodField(read_only=True)
     application_code = serializers.CharField(source='application.application_code', read_only=True, allow_null=True)
+    application_status = serializers.CharField(source='application.status', read_only=True, allow_null=True)
 
     class Meta:
         model = Lead
@@ -83,28 +85,28 @@ class LeadSerializer(serializers.ModelSerializer):
             'currency',
             'assigned_to',
             'assigned_to_name',
+            'assignment_reason',
             'portal_username', 'has_portal_account', 'can_create_portal_account',
             'converted_customer',
-            'customer', 'customer_name', 'application', 'application_code',
+            'customer', 'customer_name', 'application', 'application_code', 'application_status',
             'created_by',
             'created_by_name',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_by', 'converted_customer', 'customer', 'application', 'customer_name', 'application_code', 'status', 'portal_username', 'has_portal_account', 'can_create_portal_account', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_by', 'converted_customer', 'customer', 'application', 'customer_name', 'application_code', 'application_status', 'status', 'portal_username', 'has_portal_account', 'can_create_portal_account', 'created_at', 'updated_at']
 
     def validate(self,attrs):
         req=self.context['request']; user=req.user
         org=get_user_organization(user,req)
         if not self.instance and org:
-            from subscriptions.models import Subscription
-            subscription=Subscription.objects.filter(organization=org,status__in=['active','trialing']).select_related('plan').order_by('-created_at').first()
-            limit=subscription.plan.max_leads if subscription and subscription.plan else None
-            if limit is not None and Lead.objects.filter(organization=org).count() >= limit:
-                raise serializers.ValidationError({'subscription':f'This plan allows up to {limit} leads. Upgrade your plan to add more.'})
+            from subscriptions.entitlements import enforce_resource_limit
+            enforce_resource_limit(org, 'leads')
         assigned=attrs.get('assigned_to')
         if assigned and (not org or assigned.organization_id!=org.id):
             raise serializers.ValidationError({'assigned_to':'Employee must belong to your organization.'})
+        if assigned and assigned.employment_status != Employee.EmploymentStatus.ACTIVE:
+            raise serializers.ValidationError({'assigned_to':'Assign leads only to active employees.'})
         role=get_user_role_context(user,req); level=role['hierarchy_level']
         if not self.instance and 50<=level<90 and not attrs.get('assigned_to'):
             raise serializers.ValidationError({'assigned_to':'Assign the lead to an employee in your reporting scope.'})
@@ -123,8 +125,6 @@ class LeadSerializer(serializers.ModelSerializer):
             employee=getattr(user,'employee',None)
             if attrs.get('assigned_to') and (not employee or attrs['assigned_to'].id!=employee.id):
                 raise serializers.ValidationError({'assigned_to':'Employees may only assign the lead owner to themselves.'})
-        if self.instance and 'assigned_to' in attrs:
-            raise serializers.ValidationError('Use the Assign lead action to change staff assignments so assignment history is retained.')
         return attrs
 
     def get_assigned_to_name(self, obj):
@@ -176,6 +176,26 @@ class LeadSerializer(serializers.ModelSerializer):
             lead=super().create(validated_data)
             return lead
 
+    def update(self, instance, validated_data):
+        assignment_reason = validated_data.pop('assignment_reason', '').strip()
+        old_owner = instance.assigned_to
+        old_owner_id = instance.assigned_to_id
+        with transaction.atomic():
+            lead = super().update(instance, validated_data)
+            if lead.assigned_to_id != old_owner_id:
+                request = self.context.get('request')
+                assigned_name = ''
+                if lead.assigned_to and lead.assigned_to.user:
+                    assigned_name = lead.assigned_to.user.get_full_name() or lead.assigned_to.user.username
+                LeadAssignmentHistory.objects.create(
+                    lead=lead,
+                    old_owner=old_owner,
+                    new_owner=lead.assigned_to,
+                    assigned_by=request.user,
+                    reason=assignment_reason or (f'Assigned to {assigned_name}' if assigned_name else 'Lead assignment changed'),
+                )
+        return lead
+
 
 class LeadPortalSerializer(serializers.ModelSerializer):
     customer_name = serializers.SerializerMethodField()
@@ -201,6 +221,8 @@ class LeadAssignSerializer(serializers.Serializer):
         if value:
             emp=Employee.objects.filter(id=value,organization=org).first()
             if not emp: raise serializers.ValidationError({'employee_id':'Staff member not found in your organization.'})
+            if emp.employment_status != Employee.EmploymentStatus.ACTIVE:
+                raise serializers.ValidationError({'employee_id':'Assign leads only to active employees.'})
             ctx=get_user_role_context(request.user,request)
             if 70<=ctx['hierarchy_level']<90:
                 manager=request.user.manager_set.first()

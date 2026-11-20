@@ -3,4 +3,7 @@ from .models import *
 
 admin.site.register(RepaymentSchedule)
 admin.site.register(RepaymentHistory)
-admin.site.register(RepaymentPayment)
+
+@admin.register(RepaymentPayment)
+class RepaymentPaymentAdmin(admin.ModelAdmin):
+    exclude = ('payment_proof',)

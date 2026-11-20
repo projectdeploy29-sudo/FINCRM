@@ -73,6 +73,8 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     """
     serializer_class = DepartmentSerializer
     permission_classes = [IsAuthenticatedTenant, IsManager]
+    search_fields = ['name', 'description', 'manager__code', 'manager__user__username']
+    ordering_fields = ['name', 'created_at']
 
     def get_queryset(self):
         org = get_user_organization(self.request.user,self.request)
@@ -84,6 +86,8 @@ class DepartmentViewSet(viewsets.ModelViewSet):
             teams_count=Count('team', distinct=True),
             employees_count=Count('employee', distinct=True),
         ).order_by('name')
+        if self.request.query_params.get('active', '').lower() == 'true':
+            qs=qs.filter(is_active=True)
         ctx=get_user_role_context(self.request.user,self.request)
         if 70<=ctx['hierarchy_level']<90:
             manager=self.request.user.manager_set.first() if hasattr(self.request.user,'manager_set') else None
@@ -103,6 +107,8 @@ class TeamViewSet(viewsets.ModelViewSet):
     """
     serializer_class = TeamSerializer
     permission_classes = [IsAuthenticatedTenant, IsTeamLead]
+    search_fields = ['name', 'description', 'department__name', 'team_lead__code', 'team_leader__employee_code']
+    ordering_fields = ['name', 'created_at']
 
     def get_queryset(self):
         org = get_user_organization(self.request.user,self.request)
@@ -113,6 +119,8 @@ class TeamViewSet(viewsets.ModelViewSet):
         ).annotate(
             members_count=Count('employee', distinct=True)
         ).order_by('name')
+        if self.request.query_params.get('active', '').lower() == 'true':
+            qs=qs.filter(is_active=True)
 
         dept_id = self.request.query_params.get('department')
         if dept_id:

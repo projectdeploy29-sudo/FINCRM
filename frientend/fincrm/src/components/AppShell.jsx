@@ -1,5 +1,5 @@
 const navItems = [
-  ['dashboard', 'Dashboard'], ['tasks', 'Send'], ['followups', 'Follow-ups'], ['interactions', 'Conversations'],
+  ['dashboard', 'Dashboard'], ['tasks', 'Send'], ['followups', 'Follow-ups'],
   ['today', 'Today'], ['pipeline', 'Pipeline'], ['reports', 'Report'], ['settings', 'Settings'],
   ['plans', 'Plans'],
 ]

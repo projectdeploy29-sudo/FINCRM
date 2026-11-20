@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { unwrapList } from '../api'
 import RecordForm from './RecordForm'
 import { modules as moduleDefinitions, onboardingFields } from '../config/modules'
@@ -63,6 +63,15 @@ function emailMeetingInvite(row) {
   window.location.href = `mailto:${encodeURIComponent(recipients)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }
 
+function withSearch(path, term) {
+  const [base, query = ''] = path.split('?')
+  const parameters = new URLSearchParams(query)
+  if (term.trim()) parameters.set('search', term.trim())
+  else parameters.delete('search')
+  const serialized = parameters.toString()
+  return serialized ? `${base}?${serialized}` : base
+}
+
 export default function ResourcePage({ module, api, user, readOnlyPortal = false, initialPath }) {
   const [rows, setRows] = useState([])
   const [single, setSingle] = useState(null)
@@ -79,49 +88,44 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
   const roleCode=user?.role?.code || ''
   const roleLevel=user?.role?.hierarchy_level || 0
   const canCreateByRole={
-    org_admin:['customers','leads','applications','customer-followups','lead-followups','application-followups','application-checklist','documents','payments'],
-    super_admin:['customers','leads','applications','customer-followups','lead-followups','application-followups','application-checklist','documents','payments'],
-    manager:['employees','teams','customers','leads','applications','tasks','customer-followups','lead-followups','application-followups','interactions','application-checklist','documents','payments'],
-    team_lead:['employees','customers','leads','applications','tasks','customer-followups','lead-followups','application-followups','interactions','application-checklist','documents','payments'],
-    general_employee:['customers','leads','applications','tasks','customer-followups','lead-followups','application-followups','interactions','application-checklist','documents','payments'],
+    org_admin:['customers','leads','applications','customer-followups','lead-followups','application-followups','payments'],
+    super_admin:['customers','leads','applications','customer-followups','lead-followups','application-followups','payments'],
+    manager:['employees','teams','customers','leads','applications','tasks','customer-followups','lead-followups','application-followups','payments'],
+    team_lead:['employees','customers','leads','applications','tasks','customer-followups','lead-followups','application-followups','payments'],
+    general_employee:['customers','leads','applications','tasks','customer-followups','lead-followups','application-followups','payments'],
   }
   const staffTypeByModule = { managers: 'manager', 'team-leads': 'team_lead', employees: 'employee' }
   const staffTypeForPage = staffTypeByModule[module.id]
   const canAddStaff = staffTypeForPage === 'manager' ? roleLevel >= 90 : staffTypeForPage === 'team_lead' ? roleLevel >= 70 : staffTypeForPage === 'employee' ? roleLevel >= 50 : false
-  const canCreate = !readOnlyPortal && !module.single && !module.creationDisabled && (staffTypeForPage ? canAddStaff : !module.readOnly && (roleLevel>=90 || (canCreateByRole[roleCode] || []).includes(module.id)))
-  const canEditRow=!readOnlyPortal && (roleLevel>=50 || (roleCode==='general_employee' && ['customers','leads','applications'].includes(module.id)))
+  const employeeRole = roleLevel >= 30 && roleLevel < 50
+  const canCreateForRole = canCreateByRole[roleCode] || (employeeRole ? canCreateByRole.general_employee : [])
+  const canCreate = !readOnlyPortal && !module.single && !module.creationDisabled && (staffTypeForPage ? canAddStaff : !module.readOnly && (roleLevel>=90 || canCreateForRole.includes(module.id)))
+  const canEditRow=!readOnlyPortal && (module.editLevel != null ? roleLevel >= module.editLevel : roleLevel>=50 || (employeeRole && ['customers','leads','applications'].includes(module.id)))
   const canSeeAction = (action) => {
     if (readOnlyPortal || roleLevel < (action.minLevel || 0)) return false
     if (action.minRole && roleCode !== action.minRole) return false
     if (action.minRoles?.length && !action.minRoles.includes(roleCode)) return false
     return true
   }
-  async function load(path = module.endpoint) {
+  const load = useCallback(async (path = module.endpoint, searchTerm = search) => {
     setLoading(true); setError(''); setMessage('')
     try {
-      const result = await api.get(path)
+      const result = await api.get(withSearch(path, searchTerm))
       if (module.single) { setSingle(result); setRows([result]); setNext(null); setPrevious(null) }
       else { setSingle(null); setRows(unwrapList(result)); setNext(result?.next || null); setPrevious(result?.previous || null) }
     } catch (exception) { setError(exception.message); setRows([]); setSingle(null) } finally { setLoading(false) }
-  }
-  useEffect(() => { load(initialPath || module.endpoint) }, [module.endpoint, initialPath])
+  }, [api, module.endpoint, module.single, search])
+  useEffect(() => {
+    const timer = setTimeout(() => load(initialPath || module.endpoint, search), search.trim() ? 250 : 0)
+    return () => clearTimeout(timer)
+  }, [initialPath, load, module.endpoint, search])
 
-  const visibleRows = useMemo(() => {
-    if (!search.trim()) return rows
-    const term = search.trim().toLowerCase()
-    return rows.filter((row) => JSON.stringify(row).toLowerCase().includes(term))
-  }, [rows, search])
+  const visibleRows = rows
 
   async function saveRecord(values) {
     let payload = values
-    if (module.fields?.some((field) => field.type === 'file')) {
-      const multipart = new FormData()
-      Object.entries(values).forEach(([key, value]) => multipart.append(key, value))
-      payload = multipart
-    }
     let result
-    if (form?.category) result = await api.post('/documents/document-categories/', payload)
-    else if (form?.row && module.single) result = await api.patch(module.endpoint, payload)
+    if (form?.row && module.single) result = await api.patch(module.endpoint, payload)
     else if (form?.row) result = await api.patch(`${module.endpoint}${form.row.id}/`, payload)
     else if (['employees', 'managers', 'team-leads'].includes(module.id)) result = await api.post('/staff/onboard/', payload)
     else result = await api.post(module.endpoint, payload)
@@ -129,20 +133,20 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
     await load()
   }
 
-  async function runAction(row, action, payload = action.staticBody || {}) {
+  async function runAction(row, action, payload = {}) {
     const confirmText = action.confirm ? `Confirm ${action.label.toLowerCase()} for ${rowLabel(row)}?` : null
     if (confirmText && !window.confirm(confirmText)) return
+    const requestPayload = { ...payload, ...(action.staticBody || {}) }
     const method = action.method || 'POST'
     let path = action.path ? `${module.endpoint}${row.id}/${action.path}/` : `${module.endpoint}${row.id}/`
     if (module.id === 'followups-today') path = `/followups/${row.kind === 'customer' ? 'customers' : row.kind === 'lead' ? 'leads' : 'applications'}/${row.id}/`
     let result
-    if (action.download) { await api.download(path, `${row.file_name || row.id}`); setMessage('Download started.'); return }
-    else if (action.endpoint) result = await api.post(action.endpoint, payload)
+    if (action.endpoint) result = await api.post(action.endpoint, requestPayload)
     else if (action.path && method === 'GET') result = await api.get(path)
-    else if (method === 'PATCH' || module.id === 'followups-today') result = await api.patch(path, module.id === 'followups-today' ? { status: 'COMPLETED' } : payload)
-    else result = await api.post(path, payload)
+    else if (method === 'PATCH' || module.id === 'followups-today') result = await api.patch(path, module.id === 'followups-today' ? { ...requestPayload, status: 'COMPLETED' } : requestPayload)
+    else result = await api.post(path, requestPayload)
     if (action.path === 'timeline' || action.path?.endsWith('history')) {
-      setActionForm({ title: action.label, result })
+      setActionForm({ title: action.label, result: unwrapList(result) })
       return
     }
     setMessage(result?.detail || `${action.label} completed.`)
@@ -153,13 +157,21 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
     setDetailRecord({ title: rowLabel(row), record: null, loading: true, error: '' })
     try {
       const record = await api.get(`${module.endpoint}${row.id}/`)
-      const histories = module.id === 'leads'
-        ? await Promise.all([
-            api.get(`${module.endpoint}${row.id}/history/`).catch(() => []),
-            api.get(`${module.endpoint}${row.id}/status-history/`).catch(() => []),
-          ])
-        : [[], []]
-      setDetailRecord({ title: rowLabel(record) || rowLabel(row), record, assignmentHistory: histories[0], statusHistory: histories[1], loading: false, error: '' })
+      let assignmentHistory = []
+      let statusHistory = []
+      let assignmentHistoryError = ''
+      let statusHistoryError = ''
+      if (module.id === 'leads') {
+        const histories = await Promise.allSettled([
+          api.get(`${module.endpoint}${row.id}/history/`),
+          api.get(`${module.endpoint}${row.id}/status-history/`),
+        ])
+        if (histories[0].status === 'fulfilled') assignmentHistory = unwrapList(histories[0].value)
+        else assignmentHistoryError = histories[0].reason.message || 'Could not load assignment history.'
+        if (histories[1].status === 'fulfilled') statusHistory = unwrapList(histories[1].value)
+        else statusHistoryError = histories[1].reason.message || 'Could not load status history.'
+      }
+      setDetailRecord({ title: rowLabel(record) || rowLabel(row), record, assignmentHistory, statusHistory, assignmentHistoryError, statusHistoryError, loading: false, error: '' })
     } catch (exception) {
       setDetailRecord({ title: rowLabel(row), record: row, loading: false, error: exception.message })
     }
@@ -196,11 +208,10 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
     <p>{module.description || `Manage ${module.label.toLowerCase()} in the active organization.`}</p>
     <button type="button" onClick={() => load()} disabled={loading}>Refresh</button>
     {canCreate && <button type="button" onClick={() => setForm({ title: staffTypeForPage ? `Add ${staffTypeForPage === 'team_lead' ? 'Team Lead' : staffTypeForPage === 'manager' ? 'Manager' : 'Employee'}` : `Add ${module.label.replace(/s$/, '')}`, initial: staffTypeForPage ? { staff_type: staffTypeForPage } : undefined })}>Add</button>}
-    {module.id === 'documents' && !readOnlyPortal && roleLevel >= 70 && <button type="button" onClick={() => setForm({ category: true, title: 'Create document category' })}>Add document category</button>}
     {(module.id === 'applications' || module.id === 'schedules') && roleLevel >= 30 && <button type="button" onClick={() => setActionForm({ title: 'Generate repayment schedule', endpoint: '/finance/schedules/generate/', fields: module.fieldsGenerate || moduleDefinitions.find((entry)=>entry.id==='schedules').fieldsGenerate })}>Generate repayment schedule</button>}
     {module.id === 'followups-today' && <button type="button" onClick={() => load()}>Load today’s follow-ups</button>}
     {module.id === 'employees' && module.history && <p>Staff records can be updated from the employee list. Use this form to onboard a manager, team lead, or employee.</p>}
-    {!module.single && <label>Search this page <input value={search} onChange={(event) => setSearch(event.target.value)} /></label>}
+    {!module.single && <label>Search records <input value={search} onChange={(event) => setSearch(event.target.value)} /></label>}
     {loading && <p>Loading…</p>}{error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {module.id === 'hierarchy' && <pre>{JSON.stringify(single, null, 2)}</pre>}
     {module.single && single && <><dl>{Object.entries(single).map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{cellValue(value)}</dd></div>)}</dl>{!module.readOnly && <button type="button" onClick={() => setForm({ row: single, title: `Edit ${module.label}` })}>Edit settings</button>}</>}
@@ -211,27 +222,27 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
         {followupModules.includes(module.id) && row.contact_phone && <a className="action-link" href={`tel:${row.contact_phone}`}>Call</a>}
         {followupModules.includes(module.id) && row.contact_email && <a className="action-link" href={`mailto:${row.contact_email}`}>Email</a>}
         {followupModules.includes(module.id) && row.followup_type === 'MEETING' && <><button type="button" onClick={() => downloadMeetingInvite(row)}>Add to calendar</button><button type="button" onClick={() => emailMeetingInvite(row)}>Prepare invite email</button></>}
-        {module.fields?.length > 0 && !module.readOnly && canEditRow && !(module.id === 'roles' && row.is_system_role) && <button type="button" onClick={() => setForm({ row, title: `Edit ${rowLabel(row)}` })}>Edit</button>}
+        {module.fields?.length > 0 && !module.readOnly && !module.editDisabled && canEditRow && !(module.id === 'roles' && row.is_system_role) && <button type="button" onClick={() => setForm({ row, title: `Edit ${rowLabel(row)}` })}>Edit</button>}
         {module.actions?.filter((action) => canSeeAction(action) && (!action.onlyStatus || action.onlyStatus.includes(row[action.onlyField || 'status']))).map((action) => <button type="button" key={action.label} onClick={() => {
-          if (!action.fields) return runAction(row, action).catch((exception) => setError(exception.message))
-          const fields=action.fields.map((field)=>field.name==='status' && action.path==='transition' && module.id==='applications' ? {...field,options:({draft:['submitted','withdrawn'],submitted:['under_review','withdrawn'],under_review:['qualified','unqualified','rejected','withdrawn'],qualified:['approved','rejected','withdrawn'],approved:['disbursed','withdrawn'],disbursed:['completed']})[row.status] || []} : field.name==='status' && action.path==='transition' && module.id==='leads' ? {...field,options:({new:['contacted'],contacted:['qualified']})[row.status] || []} : field)
+          if (!action.fields?.length) return runAction(row, action).catch((exception) => setError(exception.message))
+          const fields=action.fields
+            .filter((field)=>!field.applicationStatus || field.applicationStatus.includes(row.application_status))
+            .map((field)=>field.name==='status' && action.path==='transition' && module.id==='applications' ? {...field,options:({draft:['submitted','withdrawn'],submitted:['under_review','withdrawn'],under_review:['qualified','unqualified','rejected','withdrawn'],qualified:['approved','rejected','withdrawn'],approved:['disbursed','withdrawn'],disbursed:['completed']})[row.status] || []} : field.name==='status' && action.path==='transition' && module.id==='leads' ? {...field,options:({new:['contacted'],contacted:(['qualified','approved','disbursed','completed'].includes(row.application_status) ? ['disbursed'] : []),disbursed:['qualified']})[row.status] || []} : field)
           setActionForm({ row, action, title: action.label, fields, initial: action.endpoint ? { plan_id: row.id } : {} })
         }}>{action.label}</button>)}
-        {row.file_available && module.id === 'documents' && <button type="button" onClick={() => api.download(`/documents/documents/${row.id}/download/`, row.file_name || row.id).catch((exception) => setError(exception.message))}>Download</button>}
-        {row.payment_proof_available && module.id === 'payments' && <button type="button" onClick={() => api.download(`/finance/payments/${row.id}/proof/`, `payment-proof-${row.id}`).catch((exception) => setError(exception.message))}>Payment proof</button>}
         {module.id === 'employees' && !readOnlyPortal && <button type="button" onClick={() => api.get(`${module.endpoint}${row.id}/history/`).then((result) => setActionForm({ title: 'Staff assignment history', result })).catch((exception) => setError(exception.message))}>History</button>}
         {module.id === 'leads' && !readOnlyPortal && row.can_create_portal_account && <button type="button" onClick={() => setActionForm({row,action:{label:'Create lead portal login',path:'portal-account',method:'POST'},title:'Create lead portal login',fields:[{name:'portal_login',label:'Username',required:true},{name:'portal_password',label:'Initial password',type:'password',required:true}]})}>Create lead login</button>}
-        {!module.readOnly && !module.single && (user?.role?.hierarchy_level || 0)>=(module.deleteLevel || 90) && !(module.id === 'roles' && row.is_system_role) && <button type="button" onClick={() => { if (window.confirm(`Delete ${rowLabel(row)}?`)) api.delete(`${module.endpoint}${row.id}/`).then(load).catch((exception) => setError(exception.message)) }}>Delete</button>}
+        {!module.readOnly && !module.deleteDisabled && !module.single && (user?.role?.hierarchy_level || 0)>=(module.deleteLevel || 90) && !(module.id === 'roles' && row.is_system_role) && !(['managers', 'team-leads'].includes(module.id) && row.employment_status === 'terminated') && <button type="button" onClick={() => { const staffDelete = ['managers', 'team-leads'].includes(module.id); const prompt = staffDelete ? `Delete ${rowLabel(row)}? Their account will be disabled and existing records will be kept.` : `Delete ${rowLabel(row)}?`; if (window.confirm(prompt)) api.delete(`${module.endpoint}${row.id}/`).then(load).catch((exception) => setError(exception.message)) }}>Delete</button>}
       </td></tr>)}</tbody>
     </table>}
     {!loading && !error && rows.length === 0 && <p>No {module.label.toLowerCase()} found.</p>}
     {(next || previous) && <p>{previous && <button type="button" onClick={() => load(previous)}>Previous</button>} {next && <button type="button" onClick={() => load(next)}>Next</button>}</p>}
-    {form && <RecordForm key={`${module.id}-${form.row?.id || 'new'}-${form.category ? 'category' : 'main'}`} fields={form.category ? [{ name: 'name', required: true }, { name: 'description', type: 'textarea' }] : staffTypeForPage ? (module.id === 'employees' && form.row ? module.fields : onboardingFields.filter((field)=>!(roleLevel<70 && field.name==='department_id') && !(roleLevel<50 && field.name==='team_id')).map((field) => field.name==='staff_type' ? {...field,options:[form.initial?.staff_type || staffTypeForPage]} : field.name==='role_ids' && roleLevel<70 ? {...field,allowedCodes:['general_employee']} : field)) : module.id==='leads' ? module.fields.filter((field)=>!['assigned_doc_officer','assigned_sales_analyst', ...(form.row ? ['assigned_to'] : [])].includes(field.name)) : module.fields} initial={form.row || form.initial || {}} api={api} title={form.title} submitLabel={form.row ? 'Update' : 'Create'} onCancel={() => setForm(null)} onSubmit={saveRecord} />}
-    {actionForm?.fields && <RecordForm fields={actionForm.fields} initial={actionForm.initial} api={api} title={actionForm.title} onCancel={() => setActionForm(null)} onSubmit={async (payload) => {
+    {form && <RecordForm key={`${module.id}-${form.row?.id || 'new'}`} fields={staffTypeForPage ? (form.row ? module.fields : onboardingFields.filter((field)=>!(roleLevel<70 && field.name==='department_id') && !(roleLevel<50 && field.name==='team_id')).map((field) => field.name==='staff_type' ? {...field,options:[form.initial?.staff_type || staffTypeForPage]} : field)) : module.id==='leads' && roleLevel<50 ? module.fields.filter((field)=>!['assigned_to', 'assignment_reason'].includes(field.name)) : module.fields} initial={form.row || form.initial || {}} api={api} timezone={user?.organization?.timezone || 'UTC'} title={form.title} submitLabel={form.row ? 'Update' : 'Create'} onCancel={() => setForm(null)} onSubmit={saveRecord} />}
+    {actionForm?.fields?.length > 0 && <RecordForm fields={actionForm.fields} initial={actionForm.initial} api={api} timezone={user?.organization?.timezone || 'UTC'} title={actionForm.title} onCancel={() => setActionForm(null)} onSubmit={async (payload) => {
       if (actionForm.endpoint) { await api.post(actionForm.endpoint, payload); setMessage('Repayment schedule generated.'); setActionForm(null); await load(); return }
       await runAction(actionForm.row, actionForm.action, payload); setActionForm(null)
     }} />}
-    {actionForm && !actionForm.fields && <dialog open className="detail-dialog"><div className="record-modal-header"><h3>{actionForm.title}</h3><button type="button" className="modal-close" aria-label="Close history" onClick={() => setActionForm(null)}>×</button></div>
+    {actionForm && !actionForm.fields?.length && <dialog open className="detail-dialog"><div className="record-modal-header"><h3>{actionForm.title}</h3><button type="button" className="modal-close" aria-label="Close history" onClick={() => setActionForm(null)}>×</button></div>
       {Array.isArray(actionForm.result) && actionForm.result.length > 0 ? actionForm.result.map((entry, index) => <article className="history-entry" key={entry.id || index}><dl>{Object.entries(entry).filter(([key, value]) => key !== 'id' && !key.endsWith('_id') && value !== null && value !== '').map(([key, value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{key.endsWith('_at') ? formatDateTime(value) : cellValue(value)}</dd></div>)}</dl></article>) : <p>No history recorded yet.</p>}
       <button type="button" onClick={() => setActionForm(null)}>Close</button></dialog>}
     {detailRecord && <dialog open className="detail-dialog"><div className="record-modal-header"><h3>{detailRecord.title}</h3><button type="button" className="modal-close" aria-label="Close record details" onClick={() => setDetailRecord(null)}>×</button></div>
@@ -244,9 +255,9 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
       })}</dl>}
       {module.id === 'leads' && detailRecord.record && <>
         <h4>Assignment history</h4>
-        {detailRecord.assignmentHistory?.length ? detailRecord.assignmentHistory.map((entry) => <article className="history-entry" key={entry.id}><dl>{Object.entries(entry).filter(([key, value]) => key !== 'id' && !key.endsWith('_id') && value !== null && value !== '').map(([key, value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{key.endsWith('_at') ? formatDateTime(value) : detailValue(value)}</dd></div>)}</dl></article>) : <p>No assignment changes recorded.</p>}
+        {detailRecord.assignmentHistoryError ? <p role="alert">Could not load assignment history: {detailRecord.assignmentHistoryError}</p> : detailRecord.assignmentHistory?.length ? detailRecord.assignmentHistory.map((entry) => <article className="history-entry" key={entry.id}><dl>{Object.entries(entry).filter(([key, value]) => key !== 'id' && !key.endsWith('_id') && value !== null && value !== '').map(([key, value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{key.endsWith('_at') ? formatDateTime(value) : detailValue(value)}</dd></div>)}</dl></article>) : <p>No assignment changes recorded.</p>}
         <h4>Status history</h4>
-        {detailRecord.statusHistory?.length ? detailRecord.statusHistory.map((entry) => <article className="history-entry" key={entry.id}><dl>{Object.entries(entry).filter(([key, value]) => key !== 'id' && !key.endsWith('_id') && value !== null && value !== '').map(([key, value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{key.endsWith('_at') ? formatDateTime(value) : detailValue(value)}</dd></div>)}</dl></article>) : <p>No status changes recorded.</p>}
+        {detailRecord.statusHistoryError ? <p role="alert">Could not load status history: {detailRecord.statusHistoryError}</p> : detailRecord.statusHistory?.length ? detailRecord.statusHistory.map((entry) => <article className="history-entry" key={entry.id}><dl>{Object.entries(entry).filter(([key, value]) => key !== 'id' && !key.endsWith('_id') && value !== null && value !== '').map(([key, value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{key.endsWith('_at') ? formatDateTime(value) : detailValue(value)}</dd></div>)}</dl></article>) : <p>No status changes recorded.</p>}
       </>}
       <button type="button" onClick={() => setDetailRecord(null)}>Close</button></dialog>}
   </section>

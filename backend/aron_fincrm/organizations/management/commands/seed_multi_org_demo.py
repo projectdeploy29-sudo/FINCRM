@@ -212,7 +212,7 @@ class Command(BaseCommand):
                 employee = employees[index % len(employees)][0]
                 applicationFollowUp.objects.update_or_create(
                     organization=org, application=application, followup_type=["CALL", "EMAIL", "MEETING"][index % 3],
-                    defaults={"created_by": employee, "scheduled_at": now + timedelta(days=(index % 8) - 3), "status": "COMPLETED" if index % 4 == 0 else "PENDING", "notes": f"Application follow-up #{index + 1}: check documents and status."},
+                    defaults={"created_by": employee, "scheduled_at": now + timedelta(days=(index % 8) - 3), "status": "COMPLETED" if index % 4 == 0 else "PENDING", "notes": f"Application follow-up #{index + 1}: check application status."},
                 )
 
             for app_index, application in enumerate(applications):

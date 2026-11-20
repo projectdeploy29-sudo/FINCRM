@@ -34,7 +34,7 @@ class RoleSerializer(serializers.ModelSerializer):
 
     def get_permissions(self, obj):
         return list(
-            RolePermission.objects.filter(role=obj).values(
+            RolePermission.objects.filter(role=obj).exclude(permission__module='documents').values(
                 'permission__id',
                 'permission__codename',
                 'permission__module',
@@ -53,7 +53,7 @@ class RoleSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             role = Role.objects.create(**validated_data)
             if permission_ids:
-                perms = Permission.objects.filter(id__in=permission_ids)
+                perms = Permission.objects.filter(id__in=permission_ids).exclude(module='documents')
                 RolePermission.objects.bulk_create([
                     RolePermission(role=role, permission=p) for p in perms
                 ])
@@ -71,7 +71,7 @@ class RoleSerializer(serializers.ModelSerializer):
 
             if permission_ids is not None:
                 RolePermission.objects.filter(role=instance).delete()
-                perms = Permission.objects.filter(id__in=permission_ids)
+                perms = Permission.objects.filter(id__in=permission_ids).exclude(module='documents')
                 RolePermission.objects.bulk_create([
                     RolePermission(role=instance, permission=p) for p in perms
                 ])

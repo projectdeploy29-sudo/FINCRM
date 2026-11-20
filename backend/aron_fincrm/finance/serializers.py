@@ -4,15 +4,29 @@ from django.db import transaction
 from django.db.models import Sum
 from finance.models import RepaymentSchedule, RepaymentPayment
 from organizations.tenant import get_user_organization, get_user_role_context
+from organizations.dates import organization_local_date
 
 class RepaymentScheduleSerializer(serializers.ModelSerializer):
-    outstanding_amount=serializers.ReadOnlyField(); is_overdue=serializers.ReadOnlyField()
+    outstanding_amount=serializers.ReadOnlyField()
+    is_overdue=serializers.SerializerMethodField()
+    label=serializers.SerializerMethodField()
     class Meta: model=RepaymentSchedule; fields='__all__'; read_only_fields=('organization',)
+    def get_label(self, obj):
+        customer_name = obj.customer.full_name or obj.customer.legal_name
+        reference = obj.lead.lead_code if obj.lead_id else obj.application.application_code
+        return f'{reference} · {customer_name} · installment {obj.installment_number} · due {obj.due_date} · outstanding {obj.application.currency} {obj.outstanding_amount:,.2f}'
+    def get_is_overdue(self, obj):
+        return (
+            obj.due_date < organization_local_date(self.context.get('request'))
+            and obj.outstanding_amount > 0
+            and obj.status not in (RepaymentSchedule.Status.WAIVED, RepaymentSchedule.Status.CANCELLED)
+        )
 
 class RepaymentPaymentSerializer(serializers.ModelSerializer):
-    payment_proof_available=serializers.SerializerMethodField()
-    class Meta: model=RepaymentPayment; fields='__all__'; read_only_fields=('organization','recorded_by','verified_by','verification_status','created_at'); extra_kwargs={'payment_proof':{'write_only':True}}
-    def get_payment_proof_available(self,obj): return bool(obj.payment_proof)
+    class Meta:
+        model = RepaymentPayment
+        exclude = ('payment_proof',)
+        read_only_fields = ('organization', 'recorded_by', 'verified_by', 'verification_status', 'created_at')
     def validate_repayment_schedule(self, schedule):
         request=self.context['request']; user=request.user
         org=get_user_organization(user,request)
@@ -31,13 +45,14 @@ class RepaymentPaymentSerializer(serializers.ModelSerializer):
         pending=schedule.payments.filter(verification_status='PENDING').aggregate(total=Sum('amount'))['total'] or Decimal('0')
         if amount > max(schedule.outstanding_amount-pending,Decimal('0')): raise serializers.ValidationError('Payment exceeds the remaining amount, including pending receipts.')
         return schedule
-    def validate_payment_proof(self,value):
-        if value and value.size>15*1024*1024:raise serializers.ValidationError('Maximum payment proof size is 15 MB.')
-        if value and value.content_type not in {'application/pdf','image/jpeg','image/png'}:raise serializers.ValidationError('Only PDF, JPEG and PNG proofs are accepted.')
+    def validate_payment_date(self,value):
+        if value > organization_local_date(self.context['request']):
+            raise serializers.ValidationError('A payment date cannot be in the future. Historical payments are allowed.')
         return value
     def create(self, validated_data):
         req=self.context['request']; employee=getattr(req.user,'employee',None)
         if not employee: raise serializers.ValidationError('An employee profile is required to record payments.')
+        if employee.employment_status != employee.EmploymentStatus.ACTIVE: raise serializers.ValidationError('An active employee profile is required to record payments.')
         org=get_user_organization(req.user,req); schedule=validated_data['repayment_schedule']
         with transaction.atomic():
             schedule=RepaymentSchedule.objects.select_for_update().get(pk=schedule.pk,organization=org)

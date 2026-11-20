@@ -24,9 +24,9 @@ function FollowUpsPage({ modules, api, user }) {
 
 function ApplicationsPage({ api, user }) {
   const [section, setSection] = useState('applications')
-  const sections = [['applications','Applications'],['application-checklist','Checklists'],['documents','Documents'],['schedules','Repayment schedules'],['payments','Payments']]
+  const sections = [['applications','Applications'],['schedules','Repayment schedules'],['payments','Payments']]
   const selected = allModules.find((item) => item.id === section)
-  return <section className="page"><h2>Applications</h2><p>Manage assigned applications, documents, schedules, and payments.</p>
+  return <section className="page"><h2>Applications</h2><p>Manage assigned applications, repayment schedules, and payments.</p>
     <div className="tabs">{sections.map(([id,label]) => <button type="button" key={id} className={section===id?'active':''} onClick={() => setSection(id)}>{label}</button>)}</div>
     {selected && <ResourcePage key={section} module={selected} api={api} user={user} />}
   </section>
@@ -49,11 +49,11 @@ export default function App() {
     setToken(''); setProfile(null); localStorage.removeItem('fincrm_access'); localStorage.removeItem('fincrm_refresh')
   }, activeRole), [token, activeRole])
   const roleCode = profile?.role?.code || parseJwt(token).role || ''
-  const baseModules = ['dashboard','today','customers','leads','applications','employees','team-leads','managers','departments','teams','organization','plans','interactions']
+  const baseModules = ['dashboard','today','customers','leads','applications','employees','team-leads','managers','departments','teams','organization','plans']
   const visibleModules = useMemo(() => allModules.filter((module) => {
     if (roleCode === 'lead_portal') return module.id === 'dashboard'
     if (module.id === 'plans') return roleLevel >= 90
-    if (!baseModules.includes(module.id) && !['tasks','customer-followups','lead-followups','application-followups','interactions','attendees'].includes(module.id)) return false
+    if (!baseModules.includes(module.id) && !['tasks','customer-followups','lead-followups','application-followups'].includes(module.id)) return false
     if (module.id === 'managers' || module.id === 'departments' || module.id === 'organization') return roleLevel >= 90
     if (module.id === 'team-leads' || module.id === 'teams') return roleLevel >= 70
     if (module.id === 'employees') return roleLevel >= 50

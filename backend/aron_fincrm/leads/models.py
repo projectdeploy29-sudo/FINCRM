@@ -21,6 +21,7 @@ class Lead(models.Model):
     class Status(models.TextChoices):
         NEW = "new", "New"
         CONTACTED = "contacted", "Contacted"
+        DISBURSED = "disbursed", "Disbursed"
         QUALIFIED = "qualified", "Qualified"
         UNQUALIFIED = "unqualified", "Unqualified"
 
