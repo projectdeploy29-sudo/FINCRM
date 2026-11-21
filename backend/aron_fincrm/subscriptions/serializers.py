@@ -22,7 +22,6 @@ class PlanSerializer(serializers.ModelSerializer):
             'yearly_price',
             'max_employees',
             'max_leads',
-            'daily_ai_tokens',
             'features',
             'is_active',
             'created_at',
@@ -87,7 +86,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             'max_staff_allowed': obj.plan.max_employees,
             'leads_count': leads_count,
             'max_leads_allowed': obj.plan.max_leads,
-            'daily_ai_tokens': obj.plan.daily_ai_tokens,
         }
 
     def get_days_remaining(self, obj):

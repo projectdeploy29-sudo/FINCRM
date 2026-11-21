@@ -1,0 +1,15 @@
+.whatsapp-dialog{width:min(720px,calc(100vw - 32px))}
+.whatsapp-dialog form{display:grid;gap:13px}
+.whatsapp-dialog form>button{justify-self:start}
+.whatsapp-followup-details{margin:14px 0}
+.whatsapp-followup-details>div{padding:10px;background:#f7f9fc;border-radius:8px}
+.whatsapp-followup-details dd{font-size:14px;overflow-wrap:anywhere}
+.whatsapp-policy-note{font-size:13px;color:#69778d;background:#f7f9fc;border-radius:8px;padding:11px}
+.whatsapp-message-mode{display:flex;gap:18px;border:1px solid #e1e7f0;border-radius:9px;padding:12px}
+.whatsapp-message-mode legend{color:#536177;font-size:14px}
+.whatsapp-message-mode label{display:flex;align-items:center;gap:6px}
+.whatsapp-message-mode input{margin:0}
+.whatsapp-message-preview{display:block;margin-top:8px;padding:12px;background:#f7f9fc;border:1px solid #e8edf4;border-radius:8px;white-space:pre-wrap;color:#34435a}
+.whatsapp-history{margin-top:18px;border-top:1px solid #e8edf4;padding-top:10px}
+.whatsapp-history article{padding:12px 0;border-bottom:1px solid #e8edf4;font-size:13px}
+.whatsapp-history pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;background:#f7f9fc;padding:10px;border-radius:8px}

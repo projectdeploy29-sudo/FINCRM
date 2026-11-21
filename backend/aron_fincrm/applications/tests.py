@@ -70,7 +70,6 @@ class ApplicationCreationTests(TestCase):
             monthly_price="1234.00",
             max_employees=10,
             max_leads=25,
-            daily_ai_tokens=500,
             is_active=True,
         )
 
@@ -151,7 +150,7 @@ class ApplicationCreationTests(TestCase):
         self.qualify(application["id"])
         plan = Plan.objects.create(
             name="No leads plan", code="no-leads-plan", monthly_price="0.00",
-            max_employees=10, max_leads=0, daily_ai_tokens=100,
+            max_employees=10, max_leads=0,
         )
         now = timezone.now()
         Subscription.objects.create(

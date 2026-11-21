@@ -53,9 +53,15 @@ class RepaymentSchedule(models.Model):
     installment_number = models.PositiveIntegerField()
 
     expected_amount = models.DecimalField(
-        max_digits=12,
+        max_digits=15,
         decimal_places=2
     )
+
+    opening_balance = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    principal_due = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    interest_due = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    interest_days = models.PositiveIntegerField(null=True, blank=True)
+    closing_balance = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
 
     due_date = models.DateField()
 

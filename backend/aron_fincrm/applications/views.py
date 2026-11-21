@@ -76,30 +76,50 @@ class FinancialApplicationViewSet(viewsets.ModelViewSet):
                 app.approved_amount=approved
                 raw_rate=request.data.get('annual_interest_rate',app.annual_interest_rate)
                 raw_tenure=request.data.get('loan_tenure_months',app.loan_tenure_months)
-                if raw_rate not in (None,''):
-                    try: rate=Decimal(str(raw_rate))
-                    except (InvalidOperation,TypeError): return Response({'detail':'Provide a valid annual_interest_rate.'},status=400)
-                    if rate<0 or rate>100: return Response({'detail':'annual_interest_rate must be between 0 and 100.'},status=400)
-                    app.annual_interest_rate=rate
+                if raw_rate in (None,''): return Response({'detail':'Enter the annual interest rate. Enter 0 for an interest-free loan.'},status=400)
+                try: rate=Decimal(str(raw_rate))
+                except (InvalidOperation,TypeError): return Response({'detail':'Provide a valid annual_interest_rate.'},status=400)
+                if rate<0 or rate>100: return Response({'detail':'annual_interest_rate must be between 0 and 100.'},status=400)
+                app.annual_interest_rate=rate
                 if raw_tenure in (None,''):
                     return Response({'detail':'Enter the approved loan tenure in months.'},status=400)
                 try: tenure=int(raw_tenure)
                 except (TypeError,ValueError): return Response({'detail':'loan_tenure_months must be a positive whole number.'},status=400)
                 if tenure<1 or tenure>600: return Response({'detail':'loan_tenure_months must be between 1 and 600.'},status=400)
                 app.loan_tenure_months=tenure
-                rate=(app.annual_interest_rate or Decimal('0'))/Decimal('1200')
-                if rate:
-                    factor=(Decimal('1')+rate)**app.loan_tenure_months
-                    app.monthly_repayment_amount=(approved*rate*factor/(factor-1)).quantize(Decimal('0.01'))
-                else: app.monthly_repayment_amount=(approved/app.loan_tenure_months).quantize(Decimal('0.01'))
+                method=request.data.get('interest_calculation_method',app.interest_calculation_method)
+                if method not in dict(FinancialApplication.InterestCalculationMethod.choices):
+                    return Response({'detail':'Choose a supported interest calculation method.'},status=400)
+                app.interest_calculation_method=method
             if new=='disbursed':
                 from decimal import Decimal, InvalidOperation
+                raw_rate=request.data.get('annual_interest_rate',app.annual_interest_rate)
+                if raw_rate in (None,''): return Response({'detail':'Enter the annual interest rate. Enter 0 for an interest-free loan.'},status=400)
+                try: rate=Decimal(str(raw_rate))
+                except (InvalidOperation,TypeError): return Response({'detail':'Provide a valid annual_interest_rate.'},status=400)
+                if rate<0 or rate>100: return Response({'detail':'annual_interest_rate must be between 0 and 100.'},status=400)
+                raw_tenure=request.data.get('loan_tenure_months',app.loan_tenure_months)
+                try: tenure=int(raw_tenure)
+                except (TypeError,ValueError): return Response({'detail':'Enter the approved loan tenure in months.'},status=400)
+                if tenure<1 or tenure>600: return Response({'detail':'loan_tenure_months must be between 1 and 600.'},status=400)
+                method=request.data.get('interest_calculation_method',app.interest_calculation_method)
+                if method not in dict(FinancialApplication.InterestCalculationMethod.choices):
+                    return Response({'detail':'Choose a supported interest calculation method.'},status=400)
                 raw_disbursed=request.data.get('disbursed_amount')
-                if raw_disbursed in (None,''): return Response({'detail':'Enter the actual amount disbursed to the customer.'},status=400)
+                if raw_disbursed in (None,''): return Response({'detail':'Enter the interest-bearing loan principal disbursed.'},status=400)
                 try: disbursed=Decimal(str(raw_disbursed))
                 except (InvalidOperation,TypeError): return Response({'detail':'Provide a valid disbursed_amount.'},status=400)
-                if disbursed<=0 or (app.approved_amount and disbursed>app.approved_amount): return Response({'detail':'Disbursed amount must be positive and cannot exceed the approved amount.'},status=400)
+                if disbursed<=0 or not app.approved_amount or disbursed>app.approved_amount: return Response({'detail':'Loan principal must be positive and cannot exceed the approved amount.'},status=400)
+                raw_deductions=request.data.get('upfront_deductions_amount',0)
+                try: deductions=Decimal(str(raw_deductions or 0))
+                except (InvalidOperation,TypeError): return Response({'detail':'Provide a valid upfront_deductions_amount.'},status=400)
+                if deductions<0 or deductions>=disbursed: return Response({'detail':'Upfront deductions must be zero or more and lower than the loan principal.'},status=400)
                 app.disbursed_amount=disbursed
+                app.upfront_deductions_amount=deductions
+                app.net_disbursed_amount=disbursed-deductions
+                app.annual_interest_rate=rate
+                app.loan_tenure_months=tenure
+                app.interest_calculation_method=method
                 app.disbursed_at=timezone.now()
             if new=='submitted': app.submitted_at=timezone.now()
             if new=='completed': app.completed_at=timezone.now()

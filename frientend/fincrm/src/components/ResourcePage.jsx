@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { unwrapList } from '../api'
 import RecordForm from './RecordForm'
+import WhatsAppComposer from './WhatsAppComposer'
 import { modules as moduleDefinitions, onboardingFields } from '../config/modules'
 
 function rowLabel(row) { return row.user_details?.full_name || row.full_name || row.contact_name || row.title || row.name || row.application_code || row.customer_code || row.lead_code || row.id }
@@ -17,11 +18,12 @@ const staffColumns = {
   managers: ['staff_name', 'code', 'managed_department_names', 'designation', 'work_email', 'employment_status'],
   'team-leads': ['staff_name', 'code', 'department_name', 'manager_name', 'team_names', 'designation', 'work_email', 'employment_status'],
 }
-const staffColumnLabels = { staff_name: 'Name', employee_code: 'Employee code', code: 'Staff code', managed_department_names: 'Departments', department_name: 'Department', team_name: 'Team', manager_name: 'Manager', staff_role: 'Role', team_names: 'Teams', work_email: 'Email', designation: 'Designation', employment_status: 'Status' }
+const staffColumnLabels = { staff_name: 'Name', employee_code: 'Employee code', code: 'Staff code', managed_department_names: 'Departments', department_name: 'Department', team_name: 'Team', manager_name: 'Manager', staff_role: 'Role', team_names: 'Teams', work_email: 'Email', designation: 'Designation', employment_status: 'Status', approved_amount: 'Approved amount', disbursed_amount: 'Loan principal', net_disbursed_amount: 'Net paid out', opening_balance: 'Opening balance', principal_due: 'Principal due', interest_due: 'Interest due', interest_days: 'Interest days', expected_amount: 'Total due', closing_balance: 'Closing balance' }
 const recordColumns = {
   customers: ['customer_code', 'customer_type', 'full_name', 'primary_phone', 'email', 'priority', 'tags', 'assigned_to_name', 'status'],
   leads: ['lead_code', 'contact_name', 'address', 'phone', 'email', 'assigned_to_name', 'status', 'expected_amount'],
-  applications: ['application_code', 'customer_name', 'application_type', 'assigned_employee_name', 'requested_amount', 'follow_up_at', 'status', 'created_at'],
+  applications: ['application_code', 'customer_name', 'application_type', 'assigned_employee_name', 'requested_amount', 'approved_amount', 'disbursed_amount', 'net_disbursed_amount', 'status', 'created_at'],
+  schedules: ['label', 'installment_number', 'due_date', 'interest_days', 'opening_balance', 'principal_due', 'interest_due', 'expected_amount', 'closing_balance', 'status'],
   departments: ['name', 'description', 'manager_details', 'is_active', 'teams_count', 'employees_count'],
   teams: ['name', 'department_name', 'description', 'team_lead_details', 'is_active', 'members_count'],
 }
@@ -83,6 +85,7 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
   const [form, setForm] = useState(null)
   const [actionForm, setActionForm] = useState(null)
   const [detailRecord, setDetailRecord] = useState(null)
+  const [whatsappFollowup, setWhatsappFollowup] = useState(null)
   const [search, setSearch] = useState('')
 
   const roleCode=user?.role?.code || ''
@@ -221,6 +224,7 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
       <tbody>{visibleRows.map((row) => <tr key={row.id || rowLabel(row)}>{columns.map((column, index) => <td key={column}>{index === 0 && row.id ? <button type="button" className="record-link" onClick={() => showRecord(row)}>{renderCell(row, column) || rowLabel(row)}</button> : renderCell(row, column)}</td>)}<td>
         {followupModules.includes(module.id) && row.contact_phone && <a className="action-link" href={`tel:${row.contact_phone}`}>Call</a>}
         {followupModules.includes(module.id) && row.contact_email && <a className="action-link" href={`mailto:${row.contact_email}`}>Email</a>}
+        {followupModules.includes(module.id) && row.contact_phone && !readOnlyPortal && roleLevel >= 30 && <button type="button" onClick={() => setWhatsappFollowup({ row, kind: module.id === 'customer-followups' ? 'customer' : module.id === 'lead-followups' ? 'lead' : 'application' })}>WhatsApp</button>}
         {followupModules.includes(module.id) && row.followup_type === 'MEETING' && <><button type="button" onClick={() => downloadMeetingInvite(row)}>Add to calendar</button><button type="button" onClick={() => emailMeetingInvite(row)}>Prepare invite email</button></>}
         {module.fields?.length > 0 && !module.readOnly && !module.editDisabled && canEditRow && !(module.id === 'roles' && row.is_system_role) && <button type="button" onClick={() => setForm({ row, title: `Edit ${rowLabel(row)}` })}>Edit</button>}
         {module.actions?.filter((action) => canSeeAction(action) && (!action.onlyStatus || action.onlyStatus.includes(row[action.onlyField || 'status']))).map((action) => <button type="button" key={action.label} onClick={() => {
@@ -260,5 +264,6 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
         {detailRecord.statusHistoryError ? <p role="alert">Could not load status history: {detailRecord.statusHistoryError}</p> : detailRecord.statusHistory?.length ? detailRecord.statusHistory.map((entry) => <article className="history-entry" key={entry.id}><dl>{Object.entries(entry).filter(([key, value]) => key !== 'id' && !key.endsWith('_id') && value !== null && value !== '').map(([key, value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{key.endsWith('_at') ? formatDateTime(value) : detailValue(value)}</dd></div>)}</dl></article>) : <p>No status changes recorded.</p>}
       </>}
       <button type="button" onClick={() => setDetailRecord(null)}>Close</button></dialog>}
+    {whatsappFollowup && <WhatsAppComposer api={api} followup={whatsappFollowup.row} followupKind={whatsappFollowup.kind} timezone={user?.organization?.timezone || 'UTC'} onClose={() => setWhatsappFollowup(null)} />}
   </section>
 }

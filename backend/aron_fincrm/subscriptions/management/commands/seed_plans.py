@@ -15,7 +15,6 @@ class Command(BaseCommand):
                 "yearly_price": None,
                 "max_employees": 100,
                 "max_leads": 500,
-                "daily_ai_tokens": 10000,
                 "features": {
                     "lead_management": True,
                     "customer_management": True,
@@ -35,7 +34,6 @@ class Command(BaseCommand):
                 "yearly_price": None,
                 "max_employees": 200,
                 "max_leads": 1000,
-                "daily_ai_tokens": 30000,
                 "features": {
                     "lead_management": True,
                     "customer_management": True,
@@ -56,7 +54,6 @@ class Command(BaseCommand):
                 "yearly_price": None,
                 "max_employees": 500,
                 "max_leads": 5000,
-                "daily_ai_tokens": 75000,
                 "features": {
                     "lead_management": True,
                     "customer_management": True,
@@ -66,7 +63,6 @@ class Command(BaseCommand):
                     "tasks": True,
                     "followups": True,
                     "advanced_reports": True,
-                    "ai_assistant": True,
                     "priority_support": True,
                 },
                 "is_active": True,
@@ -79,7 +75,6 @@ class Command(BaseCommand):
                 "yearly_price": None,
                 "max_employees": None,
                 "max_leads": None,
-                "daily_ai_tokens": None,
                 "features": {
                     "lead_management": True,
                     "customer_management": True,
@@ -89,7 +84,6 @@ class Command(BaseCommand):
                     "tasks": True,
                     "followups": True,
                     "advanced_reports": True,
-                    "ai_assistant": True,
                     "priority_support": True,
                     "custom_roles": True,
                     "dedicated_support": True,

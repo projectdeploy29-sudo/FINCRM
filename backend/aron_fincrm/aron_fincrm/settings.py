@@ -46,7 +46,6 @@ if not DEBUG and not ALLOWED_HOSTS:
 
 INSTALLED_APPS = [
     'accounts',
-    'ai_assistant',
     'applications',
     'communications',
     'customers',
@@ -58,6 +57,7 @@ INSTALLED_APPS = [
     'permitions',
     'subscriptions',
     'tasks',
+    'whatsapp',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -70,7 +70,9 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_filters',
 ]
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',

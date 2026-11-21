@@ -85,7 +85,6 @@ class OrganizationIsolationTests(TestCase):
             monthly_price="1.00",
             max_employees=8,
             max_leads=3,
-            daily_ai_tokens=1000,
         )
         now = timezone.now()
         for organization, code in ((self.org_a, "NW-TEST-SUB"), (self.org_b, "CO-TEST-SUB")):

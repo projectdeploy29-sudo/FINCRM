@@ -6,7 +6,7 @@
 
 ## Scope and environment
 
-The audit followed the installed Django applications, models, serializers, viewsets, routes, permissions, tenant utilities, migrations, seed commands, and the React application, including its API client, forms, module configuration, dashboards, and routing. The checked domains were accounts, organizations, employees, customers, applications, leads, tasks and follow-ups, communications, documents, finance, subscriptions, permissions, and the AI assistant placeholder.
+The audit followed the installed Django applications, models, serializers, viewsets, routes, permissions, tenant utilities, migrations, seed commands, and the React application, including its API client, forms, module configuration, dashboards, and routing. The checked domains were accounts, organizations, employees, customers, applications, leads, tasks and follow-ups, communications, documents, finance, subscriptions, and permissions.
 
 The repository uses Django 6.1.3, Django REST Framework 3.18.3, SQLite, and a Vite/React 19 frontend. The Python environment also has SimpleJWT, django-filter, and django-cors-headers installed. The frontend package declares ESLint, but the installed `node_modules` has no ESLint executable.
 
@@ -43,7 +43,6 @@ Additional serializer checks cover customer/application/lead associations, activ
 | Documents | Improved; partial | Upload signature/size validation, review, archive, and access-log paths exist. There is no antivirus scan or external object-storage policy in this repository. |
 | Finance | Improved; partial | Decimal-based loan calculations and repayment schedule/payment paths exist; payment records are immutable and reviewable. The code calculates an amortizing/reducing-balance EMI; no approved finance policy for flat-rate or alternative methods was found. SQLite does not provide effective `select_for_update` row locking for production concurrency guarantees. |
 | Subscriptions | Improved; partial | Employee and lead limits are centralized and enforced at onboarding/conversion. The subscribe flow currently records a `MANUAL` payment as `succeeded` and activates the subscription without a payment-provider confirmation. Do not treat this as a production payment integration. |
-| AI assistant | Gap | The installed app is a placeholder; there is no implemented assistant model/API or provider integration. |
 
 ## Database and migration safety
 
@@ -68,6 +67,5 @@ The tests run against SQLite and do not establish production-grade concurrent lo
 2. Integrate a real payment provider and make subscription activation depend on verified payment callbacks rather than the current manual-success path.
 3. Choose and document the organization’s EMI/interest method with finance stakeholders; add provider-specific calculation tests before changing it.
 4. Use a database with row-level locking for concurrent payment and workflow operations.
-5. Implement and authorize the AI assistant and outbound communications integrations before presenting those features as active.
-6. Add follow-up change history, malware scanning, and full endpoint-by-endpoint role-permission review, especially where the project still uses fixed hierarchy thresholds.
-7. Restore/install the declared frontend lint tooling and run the lint script in CI.
+5. Add follow-up change history, malware scanning, and full endpoint-by-endpoint role-permission review, especially where the project still uses fixed hierarchy thresholds.
+6. Restore/install the declared frontend lint tooling and run the lint script in CI.

@@ -72,7 +72,6 @@ export default function Login({ onLogin }) {
         <ul>
           <li>{number(plan.max_employees)} Staff Accounts</li>
           <li>{number(plan.max_leads)} Leads</li>
-          <li>{number(plan.daily_ai_tokens)} AI Tokens Per Day</li>
           {plan.features?.applications && <li>Applications</li>}
         </ul>
         <button type="button" className="plan-cta" onClick={startRegistration}>Get started <span aria-hidden="true">⟶</span></button>

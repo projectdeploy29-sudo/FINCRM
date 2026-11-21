@@ -56,41 +56,82 @@ class RepaymentScheduleViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail':'Installment count must match the approved loan tenure.'},status=400)
         if not start or count<1 or count>600: return Response({'detail':'Provide a valid first_due_date and 1 to 600 installments.'},status=400)
         from datetime import date
-        from decimal import Decimal
-        try: due=date.fromisoformat(start); total=Decimal(str(application.disbursed_amount if amount in (None,'') else amount))
+        from decimal import Decimal, InvalidOperation
+        try: due=date.fromisoformat(start)
         except Exception: return Response({'detail':'Invalid date or amount.'},status=400)
-        if total<=0:return Response({'detail':'Amount must be greater than zero.'},status=400)
-        if application.disbursed_amount is not None and total!=application.disbursed_amount:
-            return Response({'detail':'Repayment schedule principal must match the actual disbursed loan amount.'},status=400)
-        rate=request.data.get('annual_interest_rate',application.annual_interest_rate or 0)
-        try: annual_rate=Decimal(str(rate))
-        except Exception:return Response({'detail':'annual_interest_rate must be a non-negative number.'},status=400)
-        if annual_rate<0 or annual_rate>100:return Response({'detail':'annual_interest_rate must be between 0 and 100.'},status=400)
+        from organizations.dates import organization_timezone
+        from finance.amortization import build_emi_schedule
         payment_type=request.data.get('payment_type','EMI')
         if payment_type not in dict(RepaymentSchedule.PaymentType.choices):return Response({'detail':'Unknown payment type.'},status=400)
-        if payment_type=='EMI' and annual_rate:
-            from decimal import localcontext
-            monthly_rate=annual_rate/Decimal('1200')
-            with localcontext() as ctx:
-                ctx.prec=28; factor=(Decimal('1')+monthly_rate)**count
-                each=(total*monthly_rate*factor/(factor-1)).quantize(Decimal('0.01'))
-        else: each=(total/count).quantize(Decimal('0.01'))
-        rows=[]
         with transaction.atomic():
             application=FinancialApplication.objects.select_for_update().get(pk=application.pk,organization=application.organization)
             if application.repayment_schedules.exists():return Response({'detail':'A repayment schedule already exists for this application.'},status=409)
+            principal=application.disbursed_amount
+            if principal is None or principal<=0:return Response({'detail':'The application has no valid interest-bearing principal.'},status=400)
+            if amount not in (None,''):
+                try: requested_principal=Decimal(str(amount))
+                except (InvalidOperation,TypeError):return Response({'detail':'Provide a valid principal amount.'},status=400)
+                if requested_principal!=principal:
+                    return Response({'detail':'The schedule principal must match the interest-bearing loan principal recorded at disbursement.'},status=400)
+            if request.data.get('annual_interest_rate') not in (None,''):
+                try: supplied_rate=Decimal(str(request.data['annual_interest_rate']))
+                except (InvalidOperation,TypeError):return Response({'detail':'Provide a valid annual interest rate.'},status=400)
+                if supplied_rate!=application.annual_interest_rate:
+                    return Response({'detail':'Interest terms are set on the application and cannot be changed while generating the schedule.'},status=400)
+            if request.data.get('interest_calculation_method') not in (None,'',application.interest_calculation_method):
+                return Response({'detail':'Interest terms are set on the application and cannot be changed while generating the schedule.'},status=400)
+            annual_rate=application.annual_interest_rate
+            if annual_rate is None or annual_rate<0 or annual_rate>100:
+                return Response({'detail':'Set a valid annual interest rate on the application before generating its schedule.'},status=400)
+            if application.disbursed_at:
+                disbursement_date=application.disbursed_at.astimezone(organization_timezone(request)).date()
+                if due<=disbursement_date:
+                    return Response({'detail':'The first due date must be after the loan disbursement date.'},status=400)
+            else:
+                disbursement_date=None
+            if payment_type=='EMI':
+                try:
+                    rows,each,total_interest=build_emi_schedule(
+                        principal=principal,
+                        annual_rate_percent=annual_rate,
+                        count=count,
+                        first_due_date=due,
+                        calculation_method=application.interest_calculation_method,
+                        disbursement_date=disbursement_date,
+                    )
+                except ValueError as error:
+                    return Response({'detail':str(error)},status=400)
+            else:
+                rows,each,total_interest=build_emi_schedule(
+                    principal=principal,
+                    annual_rate_percent=0,
+                    count=count,
+                    first_due_date=due,
+                    calculation_method='monthly_reducing',
+                )
             application.annual_interest_rate=annual_rate
             application.loan_tenure_months=count
             application.monthly_repayment_amount=each
             application.next_payment_due_date=due
             application.save(update_fields=['annual_interest_rate','loan_tenure_months','monthly_repayment_amount','next_payment_due_date','updated_at'])
-            for n in range(count):
-                month_index=due.month-1+n; year=due.year+month_index//12; month=month_index%12+1
-                import calendar
-                due_date=due.replace(year=year,month=month,day=min(due.day,calendar.monthrange(year,month)[1]))
-                installment_amount=each if payment_type=='EMI' and annual_rate else (each if n<count-1 else total-each*(count-1))
-                rows.append(RepaymentSchedule.objects.create(organization=application.organization,customer=application.customer,application=application,lead=application.lead,payment_type=payment_type,installment_number=n+1,expected_amount=installment_amount,due_date=due_date))
-        return Response(RepaymentScheduleSerializer(rows,many=True,context={'request':request}).data,status=201)
+            schedules=[]
+            for item in rows:
+                schedules.append(RepaymentSchedule.objects.create(
+                    organization=application.organization,
+                    customer=application.customer,
+                    application=application,
+                    lead=application.lead,
+                    payment_type=payment_type,
+                    installment_number=item['installment_number'],
+                    expected_amount=item['expected_amount'],
+                    due_date=item['due_date'],
+                    opening_balance=item['opening_balance'],
+                    principal_due=item['principal_due'],
+                    interest_due=item['interest_due'],
+                    interest_days=item['interest_days'],
+                    closing_balance=item['closing_balance'],
+                ))
+        return Response(RepaymentScheduleSerializer(schedules,many=True,context={'request':request}).data,status=201)
 
 class RepaymentPaymentViewSet(viewsets.ModelViewSet):
     serializer_class=RepaymentPaymentSerializer; permission_classes=[IsAuthenticatedTenant]

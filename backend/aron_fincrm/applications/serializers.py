@@ -17,7 +17,7 @@ class FinancialApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = FinancialApplication
         fields = '__all__'
-        read_only_fields = ('organization', 'created_by', 'status', 'lead', 'approved_amount', 'disbursed_amount', 'submitted_at', 'disbursed_at', 'completed_at', 'created_at', 'updated_at', 'monthly_repayment_amount', 'next_payment_due_date')
+        read_only_fields = ('organization', 'created_by', 'status', 'lead', 'approved_amount', 'disbursed_amount', 'net_disbursed_amount', 'upfront_deductions_amount', 'interest_calculation_method', 'submitted_at', 'disbursed_at', 'completed_at', 'created_at', 'updated_at', 'monthly_repayment_amount', 'next_payment_due_date')
     application_type = serializers.CharField(required=True, allow_blank=False)
     def validate_customer(self, customer):
         req=self.context['request']; org=get_user_organization(req.user, req)
@@ -44,9 +44,19 @@ class FinancialApplicationSerializer(serializers.ModelSerializer):
 
     def get_label(self, obj):
         customer_name = obj.customer.full_name or obj.customer.legal_name or obj.application_code
-        amount = obj.disbursed_amount
-        amount_label = f'{obj.currency} {amount:,.2f}' if amount is not None else 'amount not recorded'
-        return f'{obj.application_code} · {customer_name} · disbursed {amount_label}'
+        principal = obj.disbursed_amount
+        net_paid = obj.net_disbursed_amount if obj.net_disbursed_amount is not None else principal
+        if principal is not None:
+            method_label = dict(FinancialApplication.InterestCalculationMethod.choices).get(
+                obj.interest_calculation_method, obj.interest_calculation_method,
+            )
+            rate_label = f'{obj.annual_interest_rate}% at {method_label}' if obj.annual_interest_rate is not None else method_label
+            tenure_label = f' · {obj.loan_tenure_months} installments' if obj.loan_tenure_months else ''
+            return (
+                f'{obj.application_code} · {customer_name} · principal {obj.currency} {principal:,.2f}'
+                f' · net paid {obj.currency} {net_paid:,.2f} · {rate_label}{tenure_label}'
+            )
+        return f'{obj.application_code} · {customer_name} · amount not recorded'
     def validate(self,attrs):
         req=self.context['request']; org=get_user_organization(req.user,req); instance=self.instance
         lead=attrs.get('lead',getattr(instance,'lead',None)); employee=attrs.get('assigned_employee',getattr(instance,'assigned_employee',None))

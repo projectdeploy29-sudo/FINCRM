@@ -12,7 +12,6 @@ class Plan(models.Model):
     yearly_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     max_employees = models.PositiveIntegerField(default=10, null=True, blank=True)
     max_leads = models.PositiveIntegerField(default=500, null=True, blank=True)
-    daily_ai_tokens = models.PositiveIntegerField(default=10000, null=True, blank=True)
     features = models.JSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -4,6 +4,12 @@ from django.db import models
 
 
 class FinancialApplication(models.Model):
+    class InterestCalculationMethod(models.TextChoices):
+        MONTHLY_REDUCING = "monthly_reducing", "Monthly reducing balance"
+        ACTUAL_365 = "actual_365", "Daily reducing balance (Actual/365)"
+        ACTUAL_360 = "actual_360", "Daily reducing balance (Actual/360)"
+        FLAT = "flat", "Flat-rate simple interest"
+
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         SUBMITTED = "submitted", "Submitted"
@@ -52,14 +58,37 @@ class FinancialApplication(models.Model):
         max_digits=15,
         decimal_places=2,
         null=True,
+        verbose_name="approved loan amount",
     )
+    # disbursed_amount is the interest-bearing loan principal. The net amount
+    # paid out is principal less deductions withheld before disbursement.
     disbursed_amount = models.DecimalField(
         max_digits=15,
         decimal_places=2,
         null=True,
+        verbose_name="interest-bearing loan principal",
     )
-    annual_interest_rate = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
-    loan_tenure_months = models.PositiveIntegerField(null=True, blank=True)
+    upfront_deductions_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+        verbose_name="upfront deductions withheld",
+    )
+    net_disbursed_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="net amount paid out",
+    )
+    annual_interest_rate = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True, verbose_name="nominal annual interest rate (%)")
+    interest_calculation_method = models.CharField(
+        max_length=20,
+        choices=InterestCalculationMethod.choices,
+        default=InterestCalculationMethod.MONTHLY_REDUCING,
+        verbose_name="interest calculation method",
+    )
+    loan_tenure_months = models.PositiveIntegerField(null=True, blank=True, verbose_name="repayment installments (months)")
     monthly_repayment_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     next_payment_due_date = models.DateField(null=True, blank=True)
     currency = models.CharField(max_length=3, default="INR")
