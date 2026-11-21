@@ -18,6 +18,34 @@ from django.core.exceptions import ImproperlyConfigured
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _load_project_env():
+    """Load local .env values without overriding environment-provided settings."""
+    env_path = BASE_DIR / '.env'
+    if not env_path.is_file():
+        return
+    try:
+        lines = env_path.read_text(encoding='utf-8').splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('export '):
+            line = line[7:].lstrip()
+        key, separator, value = line.partition('=')
+        key = key.strip()
+        if not separator or not key or key in os.environ:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+        os.environ[key] = value
+
+
+_load_project_env()
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
@@ -58,6 +86,7 @@ INSTALLED_APPS = [
     'subscriptions',
     'tasks',
     'whatsapp',
+    'ai_assistant',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -162,6 +191,36 @@ EMAIL_BACKEND = os.environ.get(
 
 
 AUTH_USER_MODEL = "accounts.User"
+
+# The assistant uses an OpenAI-compatible chat-completions endpoint. These
+# values are read from the environment (including the local .env file).
+AI_ASSISTANT_API_URL = (
+    os.environ.get('AI_ASSISTANT_API_URL')
+    or os.environ.get('AI_API_URL')
+    or os.environ.get('AI_URL')
+    or os.environ.get('OPENAI_BASE_URL')
+    or os.environ.get('URL')
+    or os.environ.get('API_URL', '')
+).strip()
+AI_ASSISTANT_API_KEY = (
+    os.environ.get('AI_ASSISTANT_API_KEY')
+    or os.environ.get('AI_API_KEY')
+    or os.environ.get('AI_API')
+    or os.environ.get('OPENAI_API_KEY')
+    or os.environ.get('API')
+    or os.environ.get('API_KEY', '')
+).strip()
+AI_ASSISTANT_MODEL = (
+    os.environ.get('AI_ASSISTANT_MODEL')
+    or os.environ.get('AI_MODEL')
+    or os.environ.get('OPENAI_MODEL')
+    or os.environ.get('MODEL', '')
+).strip()
+try:
+    AI_ASSISTANT_TIMEOUT = max(5, min(90, int(os.environ.get('AI_ASSISTANT_TIMEOUT', '30'))))
+except ValueError:
+    AI_ASSISTANT_TIMEOUT = 30
+
 from datetime import timedelta
 
 REST_FRAMEWORK = {
