@@ -123,7 +123,7 @@ export default function RecordForm({ fields, initial = {}, api, timezone = 'UTC'
   return <dialog ref={dialogRef} aria-labelledby="record-form-title" onCancel={(event) => { event.preventDefault(); onCancel() }}>
     <div className="record-modal-header"><h3 id="record-form-title">{title}</h3><button type="button" className="modal-close" aria-label="Close form" onClick={onCancel} disabled={busy}>×</button></div>
     <form onSubmit={submit}>
-      {fields.filter((field) => !field.when || values[field.when.field] === field.when.value).map((field) => <p key={field.name}><label htmlFor={field.name}>{field.label || field.name.replaceAll('_', ' ')}{field.type === 'datetime-local' ? ` (${timezone})` : ''}{field.required ? ' *' : ''} {renderField(field)}</label></p>)}
+      {fields.filter((field) => !field.when || values[field.when.field] === field.when.value).map((field) => <p key={field.name}><label htmlFor={field.name}>{field.label || field.name.replaceAll('_', ' ')}{field.type === 'datetime-local' ? ` (${timezone})` : ''}{field.required ? ' *' : ''} {renderField(field)}</label>{field.helpText && <small className="field-help">{field.helpText}</small>}</p>)}
       {error && <p role="alert">{error}</p>}
       <button type="submit" disabled={busy}>{busy ? 'Saving…' : submitLabel}</button>
       <button type="button" onClick={onCancel} disabled={busy}>Cancel</button>

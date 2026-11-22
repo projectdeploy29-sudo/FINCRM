@@ -243,15 +243,16 @@ class LeadViewSet(viewsets.ModelViewSet):
     def convert(self, request, pk=None):
         return Response({'detail':'Lead-to-customer conversion is disabled. Leads are created from qualified applications.'},status=410)
 
-    @action(detail=True,methods=['post'])
-    def transition(self,request,pk=None):
+    @action(detail=True, methods=['post'])
+    def transition(self, request, pk=None):
         from applications.models import ApplicationStatusHistory, FinancialApplication
 
         lead = self.get_object()
         new = request.data.get('status')
         allowed = {
             Lead.Status.NEW: {Lead.Status.CONTACTED},
-            Lead.Status.CONTACTED: {Lead.Status.DISBURSED},
+            Lead.Status.CONTACTED: {Lead.Status.APPROVED},
+            Lead.Status.APPROVED: {Lead.Status.DISBURSED},
             Lead.Status.DISBURSED: {Lead.Status.QUALIFIED},
         }
         if lead.converted_customer_id:
@@ -263,7 +264,7 @@ class LeadViewSet(viewsets.ModelViewSet):
             application = lead.application if lead.application_id else None
             if (
                 not application
-                or application.status not in ('disbursed', 'completed')
+                or application.status not in (FinancialApplication.Status.DISBURSED, FinancialApplication.Status.COMPLETED)
                 or not application.disbursed_amount
                 or not application.repayment_schedules.exists()
             ):
@@ -277,146 +278,134 @@ class LeadViewSet(viewsets.ModelViewSet):
                 pk=lead.pk, organization=lead.organization,
             )
             old_lead_status = lead.status
-            if new == Lead.Status.DISBURSED:
+
+            if new in (Lead.Status.APPROVED, Lead.Status.DISBURSED):
                 role = get_user_role_context(request.user, request)
                 if role['hierarchy_level'] < 30:
-                    return Response({'detail': 'A staff member must disburse the linked application.'}, status=403)
+                    return Response({'detail': 'A staff account is required to approve or disburse the linked application.'}, status=403)
                 if not lead.application_id:
-                    return Response({'detail': 'This lead has no linked application to disburse.'}, status=400)
+                    return Response({'detail': 'This lead has no linked application.'}, status=400)
                 application = FinancialApplication.objects.select_for_update().filter(
                     pk=lead.application_id, organization=lead.organization,
                 ).first()
                 if not application or application.lead_id != lead.id:
                     return Response({'detail': 'The linked application does not match this lead.'}, status=400)
 
-                approved_amount = application.approved_amount
-                annual_rate = application.annual_interest_rate
-                tenure = application.loan_tenure_months
-                interest_method = application.interest_calculation_method
-                approve_application = application.status == FinancialApplication.Status.QUALIFIED
-                if approve_application:
-                    raw_approved = request.data.get('approved_amount')
-                    if raw_approved in (None, ''):
-                        return Response({'detail': 'Enter the amount approved for this loan.'}, status=400)
-                    try:
-                        approved_amount = Decimal(str(raw_approved))
-                    except (InvalidOperation, TypeError):
-                        return Response({'detail': 'Provide a valid approved_amount.'}, status=400)
-                    if approved_amount <= 0 or (application.requested_amount and approved_amount > application.requested_amount):
-                        return Response({'detail': 'Approved amount must be positive and cannot exceed the requested amount.'}, status=400)
+                if new == Lead.Status.APPROVED:
+                    if application.status == FinancialApplication.Status.QUALIFIED:
+                        raw_approved = request.data.get('approved_amount')
+                        if raw_approved in (None, ''):
+                            return Response({'detail': 'Enter the amount approved for this loan.'}, status=400)
+                        try:
+                            approved_amount = Decimal(str(raw_approved))
+                        except (InvalidOperation, TypeError):
+                            return Response({'detail': 'Provide a valid approved_amount.'}, status=400)
+                        if approved_amount <= 0 or (application.requested_amount and approved_amount > application.requested_amount):
+                            return Response({'detail': 'Approved amount must be positive and cannot exceed the requested amount.'}, status=400)
 
-                    raw_rate = request.data.get('annual_interest_rate')
-                    if raw_rate in (None, ''):
-                        return Response({'detail': 'Enter the annual interest rate. Enter 0 for an interest-free loan.'}, status=400)
-                    try:
-                        annual_rate = Decimal(str(raw_rate))
-                    except (InvalidOperation, TypeError):
-                        return Response({'detail': 'Provide a valid annual_interest_rate.'}, status=400)
-                    if annual_rate < 0 or annual_rate > 100:
-                        return Response({'detail': 'annual_interest_rate must be between 0 and 100.'}, status=400)
-
-                    raw_tenure = request.data.get('loan_tenure_months', tenure)
-                    if raw_tenure in (None, ''):
-                        return Response({'detail': 'Enter the approved loan tenure in months.'}, status=400)
-                    try:
-                        tenure = int(raw_tenure)
-                    except (TypeError, ValueError):
-                        return Response({'detail': 'loan_tenure_months must be a positive whole number.'}, status=400)
-                    if tenure < 1 or tenure > 600:
-                        return Response({'detail': 'loan_tenure_months must be between 1 and 600.'}, status=400)
-                    interest_method = request.data.get('interest_calculation_method')
-                    if interest_method not in dict(FinancialApplication.InterestCalculationMethod.choices):
-                        return Response({'detail': 'Choose a supported interest calculation method.'}, status=400)
-                elif application.status == FinancialApplication.Status.APPROVED:
-                    raw_rate = request.data.get('annual_interest_rate', annual_rate)
-                    raw_tenure = request.data.get('loan_tenure_months', tenure)
-                    interest_method = request.data.get('interest_calculation_method', interest_method)
-                    if raw_rate not in (None, ''):
+                        raw_rate = request.data.get('annual_interest_rate')
+                        if raw_rate in (None, ''):
+                            return Response({'detail': 'Enter the annual interest rate. Enter 0 for an interest-free loan.'}, status=400)
                         try:
                             annual_rate = Decimal(str(raw_rate))
                         except (InvalidOperation, TypeError):
                             return Response({'detail': 'Provide a valid annual_interest_rate.'}, status=400)
-                    if annual_rate is None or annual_rate < 0 or annual_rate > 100:
-                        return Response({'detail': 'Set a valid annual interest rate on the approved application.'}, status=400)
-                    try:
-                        tenure = int(raw_tenure)
-                    except (TypeError, ValueError):
-                        return Response({'detail': 'Set the approved loan tenure before disbursement.'}, status=400)
-                    if tenure < 1 or tenure > 600:
-                        return Response({'detail': 'loan_tenure_months must be between 1 and 600.'}, status=400)
-                    if interest_method not in dict(FinancialApplication.InterestCalculationMethod.choices):
-                        return Response({'detail': 'Choose a supported interest calculation method.'}, status=400)
-                elif application.status not in (FinancialApplication.Status.DISBURSED, FinancialApplication.Status.COMPLETED):
-                    return Response({'detail': 'Move the linked application to Qualified before disbursing it.'}, status=400)
+                        if annual_rate < 0 or annual_rate > 100:
+                            return Response({'detail': 'annual_interest_rate must be between 0 and 100.'}, status=400)
 
-                if application.status in (FinancialApplication.Status.QUALIFIED, FinancialApplication.Status.APPROVED) and (
-                    approved_amount is None or approved_amount <= 0
-                ):
-                    return Response({'detail': 'Record a positive approved loan amount before disbursement.'}, status=400)
+                        raw_tenure = request.data.get('loan_tenure_months')
+                        if raw_tenure in (None, ''):
+                            return Response({'detail': 'Enter the approved loan tenure in months.'}, status=400)
+                        try:
+                            tenure = int(raw_tenure)
+                        except (TypeError, ValueError):
+                            return Response({'detail': 'loan_tenure_months must be a positive whole number.'}, status=400)
+                        if tenure < 1 or tenure > 600:
+                            return Response({'detail': 'loan_tenure_months must be between 1 and 600.'}, status=400)
+                        interest_method = request.data.get('interest_calculation_method')
+                        if interest_method not in dict(FinancialApplication.InterestCalculationMethod.choices):
+                            return Response({'detail': 'Choose a supported interest calculation method.'}, status=400)
 
-                disbursed_amount = application.disbursed_amount
-                deductions = application.upfront_deductions_amount or Decimal('0')
-                disburse_application = application.status not in (
-                    FinancialApplication.Status.DISBURSED,
-                    FinancialApplication.Status.COMPLETED,
-                )
-                if disburse_application:
-                    raw_disbursed = request.data.get('disbursed_amount')
-                    if raw_disbursed in (None, ''):
-                        return Response({'detail': 'Enter the interest-bearing loan principal disbursed.'}, status=400)
-                    try:
-                        disbursed_amount = Decimal(str(raw_disbursed))
-                    except (InvalidOperation, TypeError):
-                        return Response({'detail': 'Provide a valid disbursed_amount.'}, status=400)
-                    if disbursed_amount <= 0 or (approved_amount and disbursed_amount > approved_amount):
-                        return Response({'detail': 'Loan principal must be positive and cannot exceed the approved amount.'}, status=400)
-                    raw_deductions = request.data.get('upfront_deductions_amount', 0)
-                    try:
-                        deductions = Decimal(str(raw_deductions or 0))
-                    except (InvalidOperation, TypeError):
-                        return Response({'detail': 'Provide a valid upfront_deductions_amount.'}, status=400)
-                    if deductions < 0 or deductions >= disbursed_amount:
-                        return Response({'detail': 'Upfront deductions must be zero or more and lower than the loan principal.'}, status=400)
-                    if annual_rate is None or tenure is None:
-                        return Response({'detail': 'Set the loan rate and tenure before disbursement.'}, status=400)
-                elif not disbursed_amount:
-                    return Response({'detail': 'The linked application has no recorded disbursed amount.'}, status=400)
+                        old_application_status = application.status
+                        application.status = FinancialApplication.Status.APPROVED
+                        application.approved_amount = approved_amount
+                        application.annual_interest_rate = annual_rate
+                        application.loan_tenure_months = tenure
+                        application.interest_calculation_method = interest_method
+                        application.save(update_fields=[
+                            'status', 'approved_amount', 'annual_interest_rate',
+                            'loan_tenure_months', 'interest_calculation_method', 'updated_at',
+                        ])
+                        ApplicationStatusHistory.objects.create(
+                            application=application,
+                            old_status=old_application_status,
+                            new_status=application.status,
+                            changed_by=request.user,
+                            notes=notes,
+                        )
+                    elif application.status != FinancialApplication.Status.APPROVED:
+                        return Response({'detail': 'Move the linked application to Qualified before approving it.'}, status=400)
+                    elif (
+                        not application.approved_amount
+                        or application.annual_interest_rate is None
+                        or not application.loan_tenure_months
+                    ):
+                        return Response({'detail': 'Complete the approved loan terms on the linked application first.'}, status=400)
 
-                if approve_application:
-                    old_application_status = application.status
-                    application.status = FinancialApplication.Status.APPROVED
-                    application.approved_amount = approved_amount
-                    application.annual_interest_rate = annual_rate
-                    application.loan_tenure_months = tenure
-                    application.interest_calculation_method = interest_method
-                    application.save(update_fields=[
-                        'status', 'approved_amount', 'annual_interest_rate',
-                        'loan_tenure_months', 'interest_calculation_method', 'updated_at',
-                    ])
-                    ApplicationStatusHistory.objects.create(
-                        application=application, old_status=old_application_status,
-                        new_status=application.status, changed_by=request.user, notes=notes,
-                    )
+                else:
+                    if application.status == FinancialApplication.Status.APPROVED:
+                        approved_amount = application.approved_amount
+                        annual_rate = application.annual_interest_rate
+                        tenure = application.loan_tenure_months
+                        interest_method = application.interest_calculation_method
+                        if approved_amount is None or approved_amount <= 0:
+                            return Response({'detail': 'Record a positive approved loan amount before disbursement.'}, status=400)
+                        if annual_rate is None or annual_rate < 0 or annual_rate > 100:
+                            return Response({'detail': 'Set a valid annual interest rate on the approved application.'}, status=400)
+                        if not tenure or tenure < 1 or tenure > 600:
+                            return Response({'detail': 'Set the approved loan tenure before disbursement.'}, status=400)
+                        if interest_method not in dict(FinancialApplication.InterestCalculationMethod.choices):
+                            return Response({'detail': 'Choose a supported interest calculation method.'}, status=400)
 
-                if disburse_application:
-                    old_application_status = application.status
-                    application.status = FinancialApplication.Status.DISBURSED
-                    application.disbursed_amount = disbursed_amount
-                    application.upfront_deductions_amount = deductions
-                    application.net_disbursed_amount = disbursed_amount - deductions
-                    application.annual_interest_rate = annual_rate
-                    application.loan_tenure_months = tenure
-                    application.interest_calculation_method = interest_method
-                    application.disbursed_at = timezone.now()
-                    application.save(update_fields=[
-                        'status', 'disbursed_amount', 'upfront_deductions_amount',
-                        'net_disbursed_amount', 'annual_interest_rate', 'loan_tenure_months',
-                        'interest_calculation_method', 'disbursed_at', 'updated_at',
-                    ])
-                    ApplicationStatusHistory.objects.create(
-                        application=application, old_status=old_application_status,
-                        new_status=application.status, changed_by=request.user, notes=notes,
-                    )
+                        raw_disbursed = request.data.get('disbursed_amount')
+                        if raw_disbursed in (None, ''):
+                            return Response({'detail': 'Enter the interest-bearing loan principal disbursed.'}, status=400)
+                        try:
+                            disbursed_amount = Decimal(str(raw_disbursed))
+                        except (InvalidOperation, TypeError):
+                            return Response({'detail': 'Provide a valid disbursed_amount.'}, status=400)
+                        if disbursed_amount <= 0 or disbursed_amount > approved_amount:
+                            return Response({'detail': 'Loan principal must be positive and cannot exceed the approved amount.'}, status=400)
+
+                        raw_deductions = request.data.get('upfront_deductions_amount', 0)
+                        try:
+                            deductions = Decimal(str(raw_deductions or 0))
+                        except (InvalidOperation, TypeError):
+                            return Response({'detail': 'Provide a valid upfront_deductions_amount.'}, status=400)
+                        if deductions < 0 or deductions >= disbursed_amount:
+                            return Response({'detail': 'Upfront deductions must be zero or more and lower than the loan principal.'}, status=400)
+
+                        old_application_status = application.status
+                        application.status = FinancialApplication.Status.DISBURSED
+                        application.disbursed_amount = disbursed_amount
+                        application.upfront_deductions_amount = deductions
+                        application.net_disbursed_amount = disbursed_amount - deductions
+                        application.disbursed_at = timezone.now()
+                        application.save(update_fields=[
+                            'status', 'disbursed_amount', 'upfront_deductions_amount',
+                            'net_disbursed_amount', 'disbursed_at', 'updated_at',
+                        ])
+                        ApplicationStatusHistory.objects.create(
+                            application=application,
+                            old_status=old_application_status,
+                            new_status=application.status,
+                            changed_by=request.user,
+                            notes=notes,
+                        )
+                    elif application.status not in (FinancialApplication.Status.DISBURSED, FinancialApplication.Status.COMPLETED):
+                        return Response({'detail': 'Approve the linked application before disbursing it.'}, status=400)
+                    elif not application.disbursed_amount:
+                        return Response({'detail': 'The application has no recorded disbursed amount.'}, status=400)
 
             lead.status = new
             lead.save(update_fields=['status', 'updated_at'])

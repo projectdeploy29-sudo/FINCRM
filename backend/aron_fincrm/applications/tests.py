@@ -5,7 +5,7 @@ from rest_framework.test import APIClient
 from django.urls import reverse
 from datetime import timedelta
 
-from applications.models import FinancialApplication
+from applications.models import ApplicationStatusHistory, FinancialApplication
 from customers.models import Customer
 from employes.models import Employee
 from leads.models import Lead
@@ -108,6 +108,29 @@ class ApplicationCreationTests(TestCase):
                 format="json",
             )
             self.assertEqual(response.status_code, 200, response.data)
+
+    def test_application_status_history_records_and_returns_transitions(self):
+        application = self.create_application()
+        history_url = reverse("application-history", kwargs={"pk": application["id"]})
+
+        response = self.client.get(history_url)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["old_status"], "")
+        self.assertEqual(response.data[0]["new_status"], FinancialApplication.Status.SUBMITTED)
+
+        self.qualify(application["id"])
+
+        response = self.client.get(history_url)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            [entry["new_status"] for entry in response.data],
+            ["qualified", "under_review", "submitted"],
+        )
+        self.assertEqual(
+            ApplicationStatusHistory.objects.filter(application_id=application["id"]).count(),
+            3,
+        )
 
     def test_qualified_application_creates_one_linked_lead_idempotently(self):
         application = self.create_application()

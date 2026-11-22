@@ -1,4 +1,8 @@
+import uuid
+from datetime import timedelta
+
 from django.db import transaction
+from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -8,6 +12,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from organizations.models import organizations_organization
 from permitions.models import Role
+from subscriptions.models import PlanCheckout, Subscription, Payment
+from subscriptions.registration import hash_registration_token
 
 User = get_user_model()
 
@@ -46,6 +52,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
 
 class OrganizationRegistrationSerializer(serializers.Serializer):
+    registration_token = serializers.CharField(max_length=128, write_only=True)
     # Organization fields
     organization_name = serializers.CharField(max_length=200)
     legal_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
@@ -95,6 +102,19 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
+        token_hash = hash_registration_token(attrs['registration_token'])
+        checkout = PlanCheckout.objects.filter(
+            registration_token_hash=token_hash,
+            status=PlanCheckout.Status.PAID,
+            registration_token_used_at__isnull=True,
+            registration_token_expires_at__gt=timezone.now(),
+        ).select_related('plan').first()
+        if not checkout:
+            raise serializers.ValidationError({'registration_token': 'This registration link is invalid, expired, or already used.'})
+        if checkout.purchaser_email.casefold() != attrs['email'].strip().casefold():
+            raise serializers.ValidationError({'email': 'Use the email address that received the registration link.'})
+        attrs['checkout_id'] = checkout.id
+
         org_name = attrs.get('organization_name')
         slug = attrs.get('slug')
         if not slug:
@@ -110,7 +130,23 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
+        registration_token = validated_data.pop('registration_token')
+        checkout_id = validated_data.pop('checkout_id')
         with transaction.atomic():
+            claimed_at = timezone.now()
+            claimed = PlanCheckout.objects.filter(
+                id=checkout_id,
+                registration_token_hash=hash_registration_token(registration_token),
+                status=PlanCheckout.Status.PAID,
+                registration_token_used_at__isnull=True,
+                registration_token_expires_at__gt=claimed_at,
+            ).update(status=PlanCheckout.Status.COMPLETED, registration_token_used_at=claimed_at)
+            if claimed != 1:
+                raise serializers.ValidationError({'registration_token': 'This registration link is invalid, expired, or already used.'})
+            checkout = PlanCheckout.objects.select_related('plan').get(id=checkout_id)
+            if checkout.purchaser_email.casefold() != validated_data['email'].strip().casefold():
+                raise serializers.ValidationError({'email': 'Use the email address that received the registration link.'})
+
             # 1. Create Organization
             org = organizations_organization.objects.create(
                 name=validated_data['organization_name'],
@@ -146,6 +182,31 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
                 }
             )
 
+            # Activate the plan only after the registration link is redeemed.
+            now = timezone.now()
+            duration = timedelta(days=30) if checkout.billing_cycle == Subscription.BillingCycle.MONTHLY else timedelta(days=365)
+            subscription = Subscription.objects.create(
+                organization=org,
+                plan=checkout.plan,
+                Subscriptioncode='SUB-' + uuid.uuid4().hex[:12].upper(),
+                billing_cycle=checkout.billing_cycle,
+                status=Subscription.Status.ACTIVE,
+                start_date=now,
+                end_date=now + duration,
+                next_billing_date=(now + duration).date(),
+            )
+            payment = Payment.objects.create(
+                subscription=subscription,
+                amount=checkout.amount,
+                currency=checkout.currency,
+                provider='RAZORPAY',
+                provider_payment_id=checkout.razorpay_payment_id or '',
+                invoice_reference='INV-' + subscription.Subscriptioncode,
+                status=Payment.Status.SUCCEEDED,
+                paid_at=checkout.paid_at,
+            )
+            subscription.payment = payment
+            subscription.save(update_fields=['payment'])
             # 4. Generate JWT Tokens
             refresh = RefreshToken.for_user(user)
             refresh['org_id'] = str(org.id)

@@ -12,6 +12,7 @@ import SettingsPage from './components/SettingsPage'
 import Drilldown from './components/Drilldown'
 import LeadPortalDashboard from './components/LeadPortalDashboard'
 import AIAssistant from './components/AIAssistant'
+import PlanCatalog from './components/PlanCatalog'
 import { getPresetDateRange } from './dateRange'
 
 function FollowUpsPage({ modules, api, user }) {
@@ -96,7 +97,7 @@ export default function App() {
   const active = visibleModules.find((module) => module.id === activeModule) || visibleModules[0]
   function changeRole(code) { setActiveRole(code); localStorage.setItem('fincrm_active_role', code); setActiveModule('dashboard'); setDrillTarget(null) }
   return <AppShell user={profile} modules={visibleModules} activeModule={activeModule} dateRange={dateRange} onDateRangeChange={changeDateRange} onNavigate={setActiveModule} onRoleChange={changeRole} onSignOut={signOut}>
-    {roleCode === 'lead_portal' ? <LeadPortalDashboard key={`lead-portal-${activeRole}`} api={api} /> : activeModule === 'pipeline' ? <PipelinePage api={api} dateRange={dateRange} onDrillDown={setDrillTarget} /> : activeModule === 'reports' ? <ReportPage api={api} dateRange={dateRange} onDrillDown={setDrillTarget} /> : activeModule === 'settings' ? <SettingsPage api={api} user={profile} onProfileUpdated={setProfile} onNavigate={setActiveModule} /> : activeModule === 'followups' ? <FollowUpsPage modules={visibleModules} api={api} user={profile} /> : activeModule === 'applications' ? <ApplicationsPage api={api} user={profile} /> : active?.type === 'dashboard' ? <Dashboard key={`${profile?.role?.code || 'loading'}-${activeRole}`} api={api} user={profile} dateRange={dateRange} onNavigate={setActiveModule} onDrillDown={setDrillTarget} /> : active?.type === 'today' ? <TodayPage key={`${activeRole}-today`} api={api} /> : active && <ResourcePage key={active.id} module={active} api={api} user={profile} initialPath={modulePaths[active.id]} />}
+    {roleCode === 'lead_portal' ? <LeadPortalDashboard key={`lead-portal-${activeRole}`} api={api} /> : activeModule === 'plans' ? <PlanCatalog api={api} user={profile?.user || profile} /> : activeModule === 'pipeline' ? <PipelinePage api={api} dateRange={dateRange} onDrillDown={setDrillTarget} /> : activeModule === 'reports' ? <ReportPage api={api} dateRange={dateRange} onDrillDown={setDrillTarget} /> : activeModule === 'settings' ? <SettingsPage api={api} user={profile} onProfileUpdated={setProfile} onNavigate={setActiveModule} /> : activeModule === 'followups' ? <FollowUpsPage modules={visibleModules} api={api} user={profile} /> : activeModule === 'applications' ? <ApplicationsPage api={api} user={profile} /> : active?.type === 'dashboard' ? <Dashboard key={`${profile?.role?.code || 'loading'}-${activeRole}`} api={api} user={profile} dateRange={dateRange} onNavigate={setActiveModule} onDrillDown={setDrillTarget} /> : active?.type === 'today' ? <TodayPage key={`${activeRole}-today`} api={api} /> : active && <ResourcePage key={active.id} module={active} api={api} user={profile} initialPath={modulePaths[active.id]} />}
     {drillTarget && <Drilldown api={api} target={{ ...drillTarget, dateRange }} onClose={() => setDrillTarget(null)} />}
     <AIAssistant key={activeRole} api={api} roleName={profile?.role?.name} />
   </AppShell>

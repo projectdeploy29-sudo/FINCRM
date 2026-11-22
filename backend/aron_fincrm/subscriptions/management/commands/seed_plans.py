@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from decimal import Decimal
 from subscriptions.models import Plan
 
 
@@ -11,8 +12,8 @@ class Command(BaseCommand):
                 "name": "Starter",
                 "code": "starter",
                 "description": "For small teams getting started with CRM.",
-                "monthly_price": 2499.00,
-                "yearly_price": None,
+                "monthly_price": Decimal("1.00"),
+                "yearly_price": Decimal("2.00"),
                 "max_employees": 100,
                 "max_leads": 500,
                 "features": {
@@ -30,8 +31,8 @@ class Command(BaseCommand):
                 "name": "Growth",
                 "code": "growth",
                 "description": "For growing teams that need more capacity.",
-                "monthly_price": 4999.00,
-                "yearly_price": None,
+                "monthly_price": Decimal("2.00"),
+                "yearly_price": Decimal("3.00"),
                 "max_employees": 200,
                 "max_leads": 1000,
                 "features": {
@@ -50,8 +51,8 @@ class Command(BaseCommand):
                 "name": "Professional",
                 "code": "professional",
                 "description": "For professional teams that need maximum power.",
-                "monthly_price": 9999.00,
-                "yearly_price": None,
+                "monthly_price": Decimal("3.00"),
+                "yearly_price": Decimal("3.00"),
                 "max_employees": 500,
                 "max_leads": 5000,
                 "features": {

@@ -54,6 +54,12 @@ class CustomerViewSet(viewsets.ModelViewSet):
             elif employee: qs=qs.filter(assigned_to=employee)
             else: qs=qs.none()
 
+        if self.request.query_params.get('without_application', '').lower() == 'true':
+            existing_customer_ids = FinancialApplication.objects.filter(
+                organization=org,
+            ).values_list('customer_id', flat=True)
+            qs = qs.exclude(pk__in=existing_customer_ids)
+
         # Filter by tag if requested
         tag = self.request.query_params.get('tag')
         if tag:

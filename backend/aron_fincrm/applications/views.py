@@ -13,8 +13,8 @@ from applications.serializers import FinancialApplicationSerializer, Application
 ALLOWED = {
  'draft': {'submitted','withdrawn'}, 'submitted': {'under_review','withdrawn'},
  'under_review': {'qualified','unqualified','rejected','withdrawn'},
- 'qualified': {'approved','rejected','withdrawn'}, 'unqualified': set(),
- 'approved': {'disbursed','withdrawn'}, 'disbursed': {'completed'},
+ 'qualified': {'rejected','withdrawn'}, 'unqualified': set(),
+ 'approved': {'withdrawn'}, 'disbursed': {'completed'},
  'rejected': set(), 'completed': set(), 'withdrawn': set(),
 }
 class FinancialApplicationViewSet(viewsets.ModelViewSet):
@@ -38,6 +38,8 @@ class FinancialApplicationViewSet(viewsets.ModelViewSet):
         status_filter=self.request.query_params.get('status')
         if status_filter=='pending': qs=qs.filter(status__in=['draft','submitted','under_review'])
         elif status_filter: qs=qs.filter(status=status_filter)
+        if self.request.query_params.get('without_repayment_schedule', '').lower() == 'true':
+            qs = qs.filter(repayment_schedules__isnull=True).distinct()
         ctx=get_user_role_context(self.request.user,self.request); level=ctx['hierarchy_level']; user=self.request.user
         if level>=90: return qs
         if level>=70:

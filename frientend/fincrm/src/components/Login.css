@@ -4,6 +4,7 @@
 .public-header nav{display:flex;gap:10px}
 .public-header nav button{min-width:90px;font-weight:600}
 .public-header nav button.active{color:#075bea;background:#eaf2ff;border-color:#cfe0ff}
+.registration-link-label{margin:0;color:#52627a;font-weight:650}
 .public-plans{max-width:1700px;margin:0 auto;padding:32px clamp(20px,3vw,44px) 54px}
 .plans-intro{max-width:820px;margin:0 auto 54px;text-align:center;color:#71809a;font-size:20px;line-height:1.6}
 .plan-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;align-items:stretch}

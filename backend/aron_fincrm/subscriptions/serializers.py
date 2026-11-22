@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 from django.db import transaction
-from subscriptions.models import Plan, Subscription, Payment
+from subscriptions.models import Plan, Subscription, Payment, EnterpriseInquiry
 from organizations.tenant import get_user_organization
 from employes.models import Employee
 from accounts.models import Manager, TeamLead
@@ -27,6 +27,44 @@ class PlanSerializer(serializers.ModelSerializer):
             'created_at',
         ]
 
+
+class PlanCheckoutSerializer(serializers.Serializer):
+    plan_id = serializers.UUIDField()
+    billing_cycle = serializers.ChoiceField(choices=Subscription.BillingCycle.choices)
+    email = serializers.EmailField(required=False)
+
+    def validate_plan_id(self, value):
+        if not Plan.objects.filter(id=value, is_active=True).exists():
+            raise serializers.ValidationError('Choose an active plan.')
+        return value
+
+
+class PlanCheckoutVerificationSerializer(serializers.Serializer):
+    razorpay_order_id = serializers.CharField(max_length=100)
+    razorpay_payment_id = serializers.CharField(max_length=100)
+    razorpay_signature = serializers.CharField(max_length=256)
+
+
+class EnterpriseInquirySerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(max_length=200)
+    email = serializers.EmailField()
+    phone = serializers.CharField(max_length=30)
+    organization_name = serializers.CharField(max_length=200)
+    website = serializers.URLField(required=False, allow_blank=True)
+    linkedin_url = serializers.URLField(required=False, allow_blank=True)
+    note = serializers.CharField(required=False, allow_blank=True, max_length=5000)
+
+    class Meta:
+        model = EnterpriseInquiry
+        fields = [
+            'full_name',
+            'email',
+            'phone',
+            'organization_name',
+            'website',
+            'linkedin_url',
+            'note',
+        ]
 
 class PaymentSerializer(serializers.ModelSerializer):
     class Meta:

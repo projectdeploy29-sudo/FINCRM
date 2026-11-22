@@ -23,6 +23,14 @@ class FinancialApplicationSerializer(serializers.ModelSerializer):
         req=self.context['request']; org=get_user_organization(req.user, req)
         if not org or customer.organization_id != org.id:
             raise serializers.ValidationError('Customer must belong to your organization.')
+        existing_applications = FinancialApplication.objects.filter(
+            organization=org,
+            customer=customer,
+        )
+        if self.instance:
+            existing_applications = existing_applications.exclude(pk=self.instance.pk)
+        if existing_applications.exists():
+            raise serializers.ValidationError('This customer already has an application.')
         role=get_user_role_context(req.user,req)
         if role['hierarchy_level']<50:
             employee=getattr(req.user,'employee',None)
