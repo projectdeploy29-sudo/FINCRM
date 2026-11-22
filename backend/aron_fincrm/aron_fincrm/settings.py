@@ -96,6 +96,7 @@ INSTALLED_APPS = [
     # Third party apps
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
 ]
@@ -133,15 +134,62 @@ TEMPLATES = [
 WSGI_APPLICATION = 'aron_fincrm.wsgi.application'
 
 
-# Database
-# https://docs.djangoproject.com/en/6.1/ref/settings/#databases
+def _database_config(environ=None):
+    """Build an explicit SQLite or PostgreSQL config without changing defaults."""
+    values = os.environ if environ is None else environ
+    engine = values.get('DB_ENGINE', 'sqlite').strip().lower()
+    if engine in {'sqlite', 'sqlite3', 'django.db.backends.sqlite3'}:
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
+        }
+    if engine not in {'postgres', 'postgresql', 'django.db.backends.postgresql'}:
+        raise ImproperlyConfigured('DB_ENGINE must be sqlite or postgresql.')
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    required = ('DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST')
+    missing = [name for name in required if not values.get(name, '').strip()]
+    if missing:
+        raise ImproperlyConfigured(f'Set the required PostgreSQL settings: {", ".join(missing)}.')
+    try:
+        connection_age = int(values.get('DB_CONN_MAX_AGE', '60'))
+    except ValueError as error:
+        raise ImproperlyConfigured('DB_CONN_MAX_AGE must be a non-negative integer.') from error
+    if connection_age < 0:
+        raise ImproperlyConfigured('DB_CONN_MAX_AGE must be a non-negative integer.')
+
+    options = {}
+    ssl_mode = values.get('DB_SSLMODE', 'require').strip()
+    if ssl_mode:
+        options['sslmode'] = ssl_mode
+    ssl_root_cert = values.get('DB_SSLROOTCERT', '').strip()
+    if ssl_root_cert:
+        options['sslrootcert'] = ssl_root_cert
+    port = values.get('DB_PORT', '5432').strip() or '5432'
+    try:
+        port_number = int(port)
+    except ValueError as error:
+        raise ImproperlyConfigured('DB_PORT must be an integer between 1 and 65535.') from error
+    if not 1 <= port_number <= 65535:
+        raise ImproperlyConfigured('DB_PORT must be an integer between 1 and 65535.')
+    return {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': values['DB_NAME'].strip(),
+            'USER': values['DB_USER'].strip(),
+            'PASSWORD': values['DB_PASSWORD'],
+            'HOST': values['DB_HOST'].strip(),
+            'PORT': str(port_number),
+            'CONN_MAX_AGE': connection_age,
+            'CONN_HEALTH_CHECKS': True,
+            'OPTIONS': options,
+        }
     }
-}
+
+
+# SQLite remains the default for development; PostgreSQL is explicit opt-in.
+DATABASES = _database_config()
 
 
 # Password validation
@@ -200,9 +248,16 @@ EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'false').strip().lower() in {'1'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip()
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '').strip()
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER).strip()
+ENTERPRISE_INQUIRY_ADMIN_EMAIL = os.environ.get(
+    'ENTERPRISE_INQUIRY_ADMIN_EMAIL', EMAIL_HOST_USER,
+).strip()
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173').strip().rstrip('/')
 RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '').strip()
 RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '').strip()
+RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '').strip()
+SUBSCRIPTION_CHECKOUT_ENABLED = os.environ.get(
+    'SUBSCRIPTION_CHECKOUT_ENABLED', 'false',
+).strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
 AUTH_USER_MODEL = "accounts.User"
@@ -253,13 +308,16 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_RATES': {
+        'enterprise_inquiry': '10/hour',
+    },
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': False,
+    'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
@@ -277,4 +335,4 @@ else:
     SECURE_REFERRER_POLICY = 'same-origin'
 CSRF_TRUSTED_ORIGINS = _csv_setting('CSRF_TRUSTED_ORIGINS')
 from corsheaders.defaults import default_headers
-CORS_ALLOW_HEADERS = [*default_headers, 'x-active-role']
+CORS_ALLOW_HEADERS = [*default_headers, 'x-active-role', 'idempotency-key']

@@ -1,8 +1,7 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from organizations.models import organizations_organization
+from rest_framework.permissions import AllowAny
 from organizations.serializers import (
     OrganizationSerializer,
     OrganizationRegistrationSerializer,
@@ -160,20 +159,6 @@ class HierarchyTreeView(APIView):
         employees = Employee.objects.filter(organization=org).select_related('user', 'role', 'department', 'team')
         managers = Manager.objects.filter(organization=org).select_related('user')
         team_leads = TeamLead.objects.filter(organization=org).select_related('user', 'department')
-        if 50<=level<70:
-            profile=request.user.teamlead_profiles.first() if hasattr(request.user,'teamlead_profiles') else None
-            led_teams=profile.teams.all() if profile else Team.objects.none()
-            teams=teams.filter(id__in=led_teams.values('id'))
-            employees=employees.filter(team__in=led_teams)
-            departments=departments.filter(id__in=teams.values('department_id'))
-            team_leads=team_leads.filter(teams__in=led_teams).distinct()
-            managers=Manager.objects.none()
-        elif 70<=level<90:
-            manager=request.user.manager_set.first() if hasattr(request.user,'manager_set') else None
-            departments=departments.filter(manager=manager) if manager else Department.objects.none()
-            teams=teams.filter(department__in=departments); employees=employees.filter(department__in=departments)
-            team_leads=team_leads.filter(department__in=departments); managers=managers.filter(managed_departments__in=departments).distinct()
-
         if 50<=level<70:
             profile=request.user.teamlead_profiles.first() if hasattr(request.user,'teamlead_profiles') else None
             led_teams=profile.teams.all() if profile else Team.objects.none()

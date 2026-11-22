@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { API_ROOT, readApiResponse } from '../api'
 import PlanCatalog from './PlanCatalog'
 import './Login.css'
@@ -9,6 +9,7 @@ const emptyRegistration = {
   username: '',
   email: '',
   password: '',
+  confirm_password: '',
   first_name: '',
   last_name: '',
   org_email: '',
@@ -24,6 +25,28 @@ export default function Login({ onLogin }) {
   const [registering, setRegistering] = useState(Boolean(registrationToken))
   const [page, setPage] = useState(registrationToken ? 'login' : 'plans')
   const [registration, setRegistration] = useState(() => ({ ...emptyRegistration, registration_token: registrationToken }))
+  const [invitationDetails, setInvitationDetails] = useState(null)
+
+  useEffect(() => {
+    if (!registrationToken) return
+    fetch(`${API_ROOT}/subscriptions/registration-details/?token=${encodeURIComponent(registrationToken)}`)
+      .then(async (response) => {
+        const data = await readApiResponse(response)
+        if (!response.ok) throw new Error(data.detail || 'This registration link is invalid or expired.')
+        return data
+      })
+      .then((data) => {
+        setInvitationDetails(data)
+        setRegistration((current) => ({
+          ...current,
+          email: data.email || current.email,
+          organization_name: data.organization_name || current.organization_name,
+          first_name: data.first_name || current.first_name,
+          last_name: data.last_name || current.last_name,
+        }))
+      })
+      .catch((exception) => setError(exception.message))
+  }, [registrationToken])
 
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError('')
@@ -40,6 +63,7 @@ export default function Login({ onLogin }) {
   async function register(event) {
     event.preventDefault(); setBusy(true); setError('')
     try {
+      if (registration.password !== registration.confirm_password) throw new Error('Passwords do not match.')
       const response = await fetch(`${API_ROOT}/organizations/register/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(registration) })
       const data = await readApiResponse(response)
       if (!response.ok) throw new Error(JSON.stringify(data))
@@ -70,7 +94,7 @@ export default function Login({ onLogin }) {
         <p><label>Password <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label></p>
         <button type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form> : <form onSubmit={register}><h3>Enter your organization and admin account details</h3>
-        {[['organization_name', 'Organization name'], ['username', 'Admin username'], ['email', 'Payment email'], ['password', 'Admin password'], ['first_name', 'First name'], ['last_name', 'Last name'], ['org_email', 'Organization email'], ['org_phone', 'Organization phone']].map(([key, label]) => <p key={key}><label>{label} <input autoComplete={key === 'email' ? 'email' : undefined} type={key.includes('email') ? 'email' : key === 'password' ? 'password' : 'text'} value={registration[key]} onChange={(event) => changeRegistration(key, event.target.value)} required={['organization_name', 'username', 'email', 'password'].includes(key)} /></label></p>)}
+        {[['organization_name', 'Organization name'], ['username', 'Admin username'], ['email', 'Payment email'], ['password', 'Admin password'], ['confirm_password', 'Confirm password'], ['first_name', 'First name'], ['last_name', 'Last name'], ['org_email', 'Organization email'], ['org_phone', 'Organization phone']].map(([key, label]) => <p key={key}><label>{label} <input autoComplete={key === 'email' ? 'email' : undefined} type={key.includes('email') ? 'email' : key.includes('password') ? 'password' : 'text'} value={registration[key]} onChange={(event) => changeRegistration(key, event.target.value)} readOnly={key === 'email' || (key === 'organization_name' && invitationDetails?.enterprise)} required={['organization_name', 'username', 'email', 'password', 'confirm_password'].includes(key)} /></label></p>)}
         <button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create organization'}</button>
       </form>}
       {error && <p role="alert">{error}</p>}

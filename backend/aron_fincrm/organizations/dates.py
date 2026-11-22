@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -23,6 +23,14 @@ def organization_timezone(request=None):
 
 def organization_local_date(request=None):
     return timezone.now().astimezone(organization_timezone(request)).date()
+
+
+def organization_day_bounds(day, request=None):
+    zone = organization_timezone(request)
+    start = timezone.make_aware(datetime.combine(day, time.min), zone)
+    next_day = day + timedelta(days=1)
+    end = timezone.make_aware(datetime.combine(next_day, time.min), zone)
+    return start, end
 
 
 class OrganizationDateTimeField(serializers.DateTimeField):

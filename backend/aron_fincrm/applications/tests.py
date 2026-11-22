@@ -76,7 +76,7 @@ class ApplicationCreationTests(TestCase):
         response = APIClient().get("/api/v1/subscriptions/plans/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data[0]["code"], "test-plan")
+        self.assertIn("test-plan", {plan["code"] for plan in response.data})
 
     def test_pipeline_and_report_endpoints_are_registered_at_api_root(self):
         pipeline_response = self.client.get("/api/v1/pipeline/")

@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.dateparse import parse_date
 from rest_framework.exceptions import ValidationError
+from organizations.dates import organization_day_bounds
 
 
 def apply_date_range(queryset, request, field='created_at'):
@@ -28,10 +29,15 @@ def apply_date_range(queryset, request, field='created_at'):
                 current_model = model_field.related_model
     except Exception:
         model_field = None
-    date_lookup = f'{field}__date' if isinstance(model_field, models.DateTimeField) else field
     filters = {}
-    if start:
-        filters[f'{date_lookup}__gte'] = start
-    if end:
-        filters[f'{date_lookup}__lte'] = end if isinstance(model_field, models.DateTimeField) else end
+    if isinstance(model_field, models.DateTimeField):
+        if start:
+            filters[f'{field}__gte'] = organization_day_bounds(start, request)[0]
+        if end:
+            filters[f'{field}__lt'] = organization_day_bounds(end, request)[1]
+    else:
+        if start:
+            filters[f'{field}__gte'] = start
+        if end:
+            filters[f'{field}__lte'] = end
     return queryset.filter(**filters)

@@ -1,3 +1,1 @@
-from django.test import TestCase
-
-# Create your tests here.
+"""Tests for communications API workflows belong in this module."""

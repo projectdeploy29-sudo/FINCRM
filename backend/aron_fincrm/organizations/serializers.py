@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from organizations.models import organizations_organization
 from permitions.models import Role
 from subscriptions.models import PlanCheckout, Subscription, Payment
-from subscriptions.registration import hash_registration_token
+from subscriptions.registration import hash_registration_token, send_registration_completed
 
 User = get_user_model()
 
@@ -41,7 +41,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'is_active', 'created_at', 'updated_at']
 
     def validate_timezone(self, value):
         try:
@@ -68,6 +68,7 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, min_length=6)
+    confirm_password = serializers.CharField(write_only=True, min_length=6, required=False)
     first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
 
@@ -111,8 +112,16 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
         ).select_related('plan').first()
         if not checkout:
             raise serializers.ValidationError({'registration_token': 'This registration link is invalid, expired, or already used.'})
+        if checkout.enterprise_inquiry_id and not attrs.get('confirm_password'):
+            raise serializers.ValidationError({'confirm_password': 'Confirm your password to complete Enterprise registration.'})
+        if attrs.get('confirm_password') and attrs['password'] != attrs['confirm_password']:
+            raise serializers.ValidationError({'confirm_password': 'Passwords do not match.'})
         if checkout.purchaser_email.casefold() != attrs['email'].strip().casefold():
             raise serializers.ValidationError({'email': 'Use the email address that received the registration link.'})
+        if checkout.enterprise_inquiry_id:
+            expected_name = checkout.organization.name if checkout.organization_id else checkout.enterprise_inquiry.organization_name
+            if attrs['organization_name'].strip().casefold() != expected_name.strip().casefold():
+                raise serializers.ValidationError({'organization_name': 'Use the organization name from the Enterprise invitation.'})
         attrs['checkout_id'] = checkout.id
 
         org_name = attrs.get('organization_name')
@@ -131,6 +140,7 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         registration_token = validated_data.pop('registration_token')
+        validated_data.pop('confirm_password', None)
         checkout_id = validated_data.pop('checkout_id')
         with transaction.atomic():
             claimed_at = timezone.now()
@@ -148,17 +158,20 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
                 raise serializers.ValidationError({'email': 'Use the email address that received the registration link.'})
 
             # 1. Create Organization
-            org = organizations_organization.objects.create(
-                name=validated_data['organization_name'],
-                legal_name=validated_data.get('legal_name', ''),
-                slug=validated_data['slug'],
-                email=validated_data.get('org_email', ''),
-                phone=validated_data.get('org_phone', ''),
-                city=validated_data.get('city', ''),
-                state=validated_data.get('state', ''),
-                timezone=validated_data.get('timezone', 'Asia/Kolkata'),
-                currency=validated_data.get('currency', 'INR'),
-            )
+            if checkout.organization_id:
+                org = checkout.organization
+            else:
+                org = organizations_organization.objects.create(
+                    name=validated_data['organization_name'],
+                    legal_name=validated_data.get('legal_name', ''),
+                    slug=validated_data['slug'],
+                    email=validated_data.get('org_email', ''),
+                    phone=validated_data.get('org_phone', ''),
+                    city=validated_data.get('city', ''),
+                    state=validated_data.get('state', ''),
+                    timezone=validated_data.get('timezone', 'Asia/Kolkata'),
+                    currency=validated_data.get('currency', 'INR'),
+                )
 
             # 2. Create Org Admin User
             user = User.objects.create_user(
@@ -184,7 +197,8 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
 
             # Activate the plan only after the registration link is redeemed.
             now = timezone.now()
-            duration = timedelta(days=30) if checkout.billing_cycle == Subscription.BillingCycle.MONTHLY else timedelta(days=365)
+            cycle_days = 30 if checkout.billing_cycle == Subscription.BillingCycle.MONTHLY else 365
+            duration = timedelta(days=cycle_days * (checkout.duration_count or 1))
             subscription = Subscription.objects.create(
                 organization=org,
                 plan=checkout.plan,
@@ -193,20 +207,41 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
                 status=Subscription.Status.ACTIVE,
                 start_date=now,
                 end_date=now + duration,
-                next_billing_date=(now + duration).date(),
+                next_billing_date=(now + timedelta(days=cycle_days)).date() if checkout.payment_mode == 'recurring' else (now + duration).date(),
+                razorpay_subscription_id=checkout.razorpay_subscription_id or '',
             )
-            payment = Payment.objects.create(
-                subscription=subscription,
-                amount=checkout.amount,
-                currency=checkout.currency,
-                provider='RAZORPAY',
-                provider_payment_id=checkout.razorpay_payment_id or '',
-                invoice_reference='INV-' + subscription.Subscriptioncode,
-                status=Payment.Status.SUCCEEDED,
-                paid_at=checkout.paid_at,
-            )
-            subscription.payment = payment
-            subscription.save(update_fields=['payment'])
+            payment = Payment.objects.filter(checkout=checkout, status=Payment.Status.SUCCEEDED).order_by('-paid_at').first()
+            if payment is None:
+                if checkout.payment_mode != 'recurring':
+                    payment = Payment.objects.create(
+                        subscription=subscription,
+                        checkout=checkout,
+                        amount=checkout.amount,
+                        currency=checkout.currency,
+                        provider='RAZORPAY',
+                        provider_payment_id=checkout.razorpay_payment_id or '',
+                        invoice_reference='INV-' + subscription.Subscriptioncode,
+                        status=Payment.Status.SUCCEEDED,
+                        paid_at=checkout.paid_at,
+                    )
+            else:
+                payment.subscription = subscription
+                payment.invoice_reference = 'INV-' + subscription.Subscriptioncode
+                payment.save(update_fields=['subscription', 'invoice_reference'])
+            if payment:
+                subscription.payment = payment
+                subscription.save(update_fields=['payment'])
+            if checkout.enterprise_inquiry_id:
+                from subscriptions.models import EnterpriseInquiry
+                EnterpriseInquiry.objects.filter(pk=checkout.enterprise_inquiry_id).update(
+                    organization=org,
+                    status=EnterpriseInquiry.Status.COMPLETED,
+                )
+                transaction.on_commit(
+                    lambda completed_checkout=checkout, completed_org_name=org.name: send_registration_completed(
+                        completed_checkout, completed_org_name,
+                    )
+                )
             # 4. Generate JWT Tokens
             refresh = RefreshToken.for_user(user)
             refresh['org_id'] = str(org.id)
@@ -341,6 +376,7 @@ class TeamSerializer(serializers.ModelSerializer):
         if leader and leader.employment_status!=leader.EmploymentStatus.ACTIVE: raise serializers.ValidationError({'team_leader':'Choose an active employee team lead.'})
         if department and not department.is_active: raise serializers.ValidationError({'department':'Choose an active department.'})
         if lead and department and lead.department_id!=department.id: raise serializers.ValidationError({'team_lead':'Team lead must belong to the selected department.'})
+        if leader and department and leader.department_id!=department.id: raise serializers.ValidationError({'team_leader':'Team leader must belong to the selected department.'})
         return attrs
 
     def create(self, validated_data):

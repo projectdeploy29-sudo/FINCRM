@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status, generics
+from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -18,7 +18,6 @@ from permitions.permissions import (
     IsOrgAdmin,
     IsManager,
     IsTeamLead,
-    IsEmployee,
 )
 
 

@@ -19,6 +19,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         role_ctx = get_user_role_context(user)
         token['username'] = user.username
         token['email'] = user.email
+        token['is_superuser'] = bool(user.is_superuser)
         token['role'] = role_ctx['role_code']
         token['hierarchy_level'] = role_ctx['hierarchy_level']
         if role_ctx['organization']:
@@ -86,6 +87,7 @@ class UserMeSerializer(serializers.ModelSerializer):
             'first_name',
             'last_name',
             'is_active',
+            'is_superuser',
             'organization',
             'role',
             'department',
@@ -93,7 +95,7 @@ class UserMeSerializer(serializers.ModelSerializer):
             'permissions',
             'available_roles',
         ]
-        read_only_fields = ['id', 'is_active']
+        read_only_fields = ['id', 'is_active', 'is_superuser']
 
     def get_organization(self, obj):
         org = get_user_organization(obj)

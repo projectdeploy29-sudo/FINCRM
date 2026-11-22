@@ -47,6 +47,8 @@ class RoleSerializer(serializers.ModelSerializer):
         permission_ids = validated_data.pop('permission_ids', [])
         user = self.context['request'].user
         org = get_user_organization(user)
+        from subscriptions.entitlements import enforce_feature
+        enforce_feature(org, 'custom_roles')
         validated_data['organization'] = org
         validated_data['is_system_role'] = False
 
@@ -62,6 +64,9 @@ class RoleSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         if instance.is_system_role:
             raise serializers.ValidationError("System default roles cannot be modified.")
+
+        from subscriptions.entitlements import enforce_feature
+        enforce_feature(instance.organization, 'custom_roles')
 
         permission_ids = validated_data.pop('permission_ids', None)
         with transaction.atomic():

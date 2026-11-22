@@ -1,4 +1,3 @@
-import uuid
 from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Q

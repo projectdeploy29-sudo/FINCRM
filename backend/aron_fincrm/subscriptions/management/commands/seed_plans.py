@@ -4,7 +4,7 @@ from subscriptions.models import Plan
 
 
 class Command(BaseCommand):
-    help = "Seeds subscription plans matching FINCRM pricing tiers."
+    help = "Creates missing subscription plan rows without overwriting existing catalog data."
 
     def handle(self, *args, **options):
         plans_data = [
@@ -94,7 +94,7 @@ class Command(BaseCommand):
         ]
 
         for data in plans_data:
-            Plan.objects.update_or_create(
+            Plan.objects.get_or_create(
                 code=data["code"],
                 defaults=data,
             )

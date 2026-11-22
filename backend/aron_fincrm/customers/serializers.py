@@ -6,12 +6,6 @@ from organizations.tenant import get_user_organization
 from organizations.tenant import get_user_role_context
 
 
-class CustomerTagSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CustomerTag
-        fields = ['id', 'tag']
-
-
 class CustomerAssignmentHistorySerializer(serializers.ModelSerializer):
     previous_owner_name = serializers.SerializerMethodField()
     new_owner_name = serializers.SerializerMethodField()

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
+from finance.models import RepaymentSchedule
 from finance.serializers import RepaymentPaymentSerializer
 from organizations.dates import organization_local_date
 from organizations.models import Organization
@@ -11,6 +12,13 @@ from rest_framework.exceptions import ValidationError
 
 
 class PaymentDateValidationTests(TestCase):
+    def test_waived_or_cancelled_schedule_rejects_new_payments(self):
+        serializer = RepaymentPaymentSerializer()
+        for schedule_status in (RepaymentSchedule.Status.WAIVED, RepaymentSchedule.Status.CANCELLED):
+            schedule = type('Schedule', (), {'status': schedule_status})()
+            with self.subTest(status=schedule_status), self.assertRaises(ValidationError):
+                serializer.validate_repayment_schedule(schedule)
+
     def test_historical_payment_is_allowed_and_future_payment_is_rejected(self):
         User = get_user_model()
         organization = Organization.objects.create(name='Payment dates', slug='payment-dates')

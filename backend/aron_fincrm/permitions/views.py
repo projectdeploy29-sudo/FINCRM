@@ -1,4 +1,4 @@
-from rest_framework import viewsets, generics, permissions, status
+from rest_framework import viewsets, generics, status
 from rest_framework.response import Response
 from django.db.models import Q
 from permitions.models import Role, Permission

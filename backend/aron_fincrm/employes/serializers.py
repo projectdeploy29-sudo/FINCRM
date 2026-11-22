@@ -1,4 +1,3 @@
-import uuid
 from django.db import transaction
 from django.db.models import Q
 from django.utils.crypto import get_random_string

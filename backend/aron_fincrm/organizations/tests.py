@@ -1,4 +1,5 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
+from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -11,6 +12,7 @@ from customers.models import Customer, CustomerAssignmentHistory
 from employes.models import Employee
 from leads.models import Lead
 from organizations.models import Department, Organization, Team
+from organizations.date_filters import apply_date_range
 from subscriptions.models import Plan, Subscription
 from tasks.models import Task
 from permitions.models import Role
@@ -495,3 +497,50 @@ class OrganizationIsolationTests(TestCase):
         )
         self.assertEqual(accepted_lead.status_code, 405, accepted_lead.data)
         self.assertEqual(Lead.objects.count(), lead_count)
+
+    def test_current_organization_update_cannot_deactivate_its_tenant(self):
+        response = self.client_for(self.admin_a).patch(
+            '/api/v1/organizations/current/',
+            {'name': 'Northwind Updated', 'is_active': False},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.org_a.refresh_from_db()
+        self.assertEqual(self.org_a.name, 'Northwind Updated')
+        self.assertTrue(self.org_a.is_active)
+
+    def test_team_leader_must_belong_to_the_selected_department(self):
+        response = self.client_for(self.admin_a).patch(
+            f'/api/v1/organizations/teams/{self.team_a.id}/',
+            {'team_leader': str(self.employee_b.id)},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn('team_leader', response.data)
+
+    def test_datetime_date_range_uses_the_organization_timezone(self):
+        self.org_a.timezone = 'Asia/Kolkata'
+        self.org_a.save(update_fields=['timezone'])
+        before_local_day = self.make_task(self.org_a, self.employee_a1, 'before local day')
+        inside_local_day = self.make_task(self.org_a, self.employee_a1, 'inside local day')
+        after_local_day = self.make_task(self.org_a, self.employee_a1, 'after local day')
+        Task.objects.filter(pk=before_local_day.pk).update(
+            created_at=datetime(2026, 1, 1, 18, 29, 59, tzinfo=datetime_timezone.utc),
+        )
+        Task.objects.filter(pk=inside_local_day.pk).update(
+            created_at=datetime(2026, 1, 2, 18, 29, 59, tzinfo=datetime_timezone.utc),
+        )
+        Task.objects.filter(pk=after_local_day.pk).update(
+            created_at=datetime(2026, 1, 2, 18, 30, 0, tzinfo=datetime_timezone.utc),
+        )
+        request = SimpleNamespace(
+            user=self.admin_a,
+            headers={},
+            query_params={'start_date': '2026-01-02', 'end_date': '2026-01-02'},
+        )
+
+        filtered = apply_date_range(Task.objects.filter(organization=self.org_a), request, 'created_at')
+
+        self.assertEqual(list(filtered.values_list('pk', flat=True)), [inside_local_day.pk])

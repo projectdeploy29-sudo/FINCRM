@@ -1,10 +1,9 @@
 from django.utils import timezone
 from django.db.models import Q, Count, Sum
 from django.db import transaction
-from rest_framework import viewsets, status
+from rest_framework import viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
 from organizations.tenant import get_user_organization, get_user_role_context
 from permitions.permissions import IsAuthenticatedTenant, IsEmployee
 from employes.models import Employee
@@ -15,9 +14,9 @@ from applications.models import FinancialApplication
 from leads.models import Lead
 from customers.models import Customer
 from finance.models import RepaymentSchedule, RepaymentPayment
-from organizations.models import Department, Team
+from organizations.models import Department
 from organizations.date_filters import apply_date_range
-from organizations.dates import organization_local_date
+from organizations.dates import organization_day_bounds, organization_local_date
 
 from rest_framework import serializers
 
@@ -104,7 +103,8 @@ def followups_today(request):
   qs=model.objects.filter(organization=org,status='PENDING')
   qs=scope_followups(qs,model,user,request)
   if not request.query_params.get('start_date') and not request.query_params.get('end_date'):
-   qs=qs.filter(scheduled_at__date=day)
+   day_start, day_end=organization_day_bounds(day,request)
+   qs=qs.filter(scheduled_at__gte=day_start,scheduled_at__lt=day_end)
   else:
    qs=apply_date_range(qs,request,'scheduled_at')
   if model is CostomerFollowUp: qs=qs.select_related('customer','assigned_to__user')

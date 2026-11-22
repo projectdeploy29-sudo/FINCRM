@@ -28,6 +28,8 @@ class RepaymentPaymentSerializer(serializers.ModelSerializer):
         exclude = ('payment_proof',)
         read_only_fields = ('organization', 'recorded_by', 'verified_by', 'verification_status', 'created_at')
     def validate_repayment_schedule(self, schedule):
+        if schedule.status in (RepaymentSchedule.Status.WAIVED, RepaymentSchedule.Status.CANCELLED):
+            raise serializers.ValidationError('A waived or cancelled schedule cannot accept payments.')
         request=self.context['request']; user=request.user
         org=get_user_organization(user,request)
         if not org or schedule.organization_id != org.id: raise serializers.ValidationError('Schedule must belong to your organization.')

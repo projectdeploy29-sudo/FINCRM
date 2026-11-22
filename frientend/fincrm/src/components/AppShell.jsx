@@ -1,11 +1,13 @@
 const navItems = [
   ['dashboard', 'Dashboard'], ['tasks', 'Send'], ['followups', 'Follow-ups'],
   ['today', 'Today'], ['pipeline', 'Pipeline'], ['reports', 'Report'], ['settings', 'Settings'],
-  ['plans', 'Plans'],
+  ['subscription', 'My subscription'], ['billing', 'Billing history'], ['plans', 'Plans'],
 ]
 const recordItems = [
   ['managers', 'Manager'], ['team-leads', 'Team Lead'], ['departments', 'Department'], ['teams', 'Team'],
   ['employees', 'Employee'], ['customers', 'Customer'], ['leads', 'Lead'], ['applications', 'Application'],
+  ['payments', 'Payments'],
+  ['hierarchy', 'Organization hierarchy'],
 ]
 
 export default function AppShell({ user, modules, activeModule, dateRange, onDateRangeChange, onNavigate, onRoleChange, onSignOut, children }) {

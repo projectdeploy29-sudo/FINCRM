@@ -1,16 +1,22 @@
-import uuid
-from datetime import timedelta
+import re
+from django.contrib.auth import get_user_model
+from urllib.parse import urlsplit
+
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
-from django.db import transaction
+from decimal import Decimal
 from subscriptions.models import Plan, Subscription, Payment, EnterpriseInquiry
-from organizations.tenant import get_user_organization
+from subscriptions.configuration import is_subscription_checkout_enabled
 from employes.models import Employee
 from accounts.models import Manager, TeamLead
-from applications.models import FinancialApplication
 
 
 class PlanSerializer(serializers.ModelSerializer):
+    monthly_price = serializers.SerializerMethodField()
+    yearly_price = serializers.SerializerMethodField()
+    checkout_enabled = serializers.SerializerMethodField()
+
     class Meta:
         model = Plan
         fields = [
@@ -20,12 +26,63 @@ class PlanSerializer(serializers.ModelSerializer):
             'description',
             'monthly_price',
             'yearly_price',
+            'checkout_enabled',
             'max_employees',
             'max_leads',
             'features',
             'is_active',
             'created_at',
         ]
+
+    @staticmethod
+    def _checkout_enabled_for_plan(plan):
+        return bool(
+            is_subscription_checkout_enabled()
+            and plan.prices_confirmed
+            and plan.monthly_price is not None
+            and plan.yearly_price is not None
+            and plan.monthly_price > 0
+            and plan.yearly_price > 0
+        )
+
+    def get_monthly_price(self, obj):
+        return obj.monthly_price if self._checkout_enabled_for_plan(obj) else None
+
+    def get_yearly_price(self, obj):
+        return obj.yearly_price if self._checkout_enabled_for_plan(obj) else None
+
+    def get_checkout_enabled(self, obj):
+        return self._checkout_enabled_for_plan(obj)
+
+
+class SubscriptionPlanAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Plan
+        fields = [
+            'id', 'name', 'code', 'description', 'currency', 'monthly_price', 'yearly_price',
+            'prices_confirmed', 'max_employees', 'max_leads', 'daily_ai_tokens', 'features',
+            'storage_limit_mb', 'included_services', 'additional_services', 'terms_conditions',
+            'is_active', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def validate_code(self, value):
+        if value == 'enterprise':
+            raise serializers.ValidationError('Enterprise is managed through the inquiry workflow.')
+        return value
+
+    def validate_currency(self, value):
+        if value.upper() != 'INR':
+            raise serializers.ValidationError('Only INR pricing is currently supported.')
+        return value.upper()
+
+    def validate(self, attrs):
+        monthly = attrs.get('monthly_price', getattr(self.instance, 'monthly_price', None))
+        yearly = attrs.get('yearly_price', getattr(self.instance, 'yearly_price', None))
+        confirmed = attrs.get('prices_confirmed', getattr(self.instance, 'prices_confirmed', False))
+        if confirmed and (monthly is None or yearly is None or monthly <= 0 or yearly <= 0):
+            raise serializers.ValidationError({'prices_confirmed': 'Set positive monthly and yearly prices before confirming prices.'})
+        return attrs
 
 
 class PlanCheckoutSerializer(serializers.Serializer):
@@ -53,6 +110,7 @@ class EnterpriseInquirySerializer(serializers.ModelSerializer):
     website = serializers.URLField(required=False, allow_blank=True)
     linkedin_url = serializers.URLField(required=False, allow_blank=True)
     note = serializers.CharField(required=False, allow_blank=True, max_length=5000)
+    fax = serializers.CharField(required=False, allow_blank=True, write_only=True, max_length=200)
 
     class Meta:
         model = EnterpriseInquiry
@@ -64,7 +122,112 @@ class EnterpriseInquirySerializer(serializers.ModelSerializer):
             'website',
             'linkedin_url',
             'note',
+            'fax',
         ]
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate_phone(self, value):
+        normalized = value.strip()
+        if not re.fullmatch(r'\+?[0-9\s().-]+', normalized):
+            raise serializers.ValidationError('Enter a valid phone number using digits and standard separators.')
+        digit_count = sum(character.isdigit() for character in normalized)
+        if not 7 <= digit_count <= 15:
+            raise serializers.ValidationError('Enter a phone number containing 7 to 15 digits.')
+        return normalized
+
+    @staticmethod
+    def _validate_http_url(value):
+        if not value:
+            return value
+        parsed = urlsplit(value)
+        if parsed.scheme.lower() not in {'http', 'https'} or not parsed.hostname:
+            raise serializers.ValidationError('Use a valid http or https URL.')
+        return value
+
+    def validate_website(self, value):
+        return self._validate_http_url(value)
+
+    def validate_linkedin_url(self, value):
+        return self._validate_http_url(value)
+
+    def create(self, validated_data):
+        validated_data.pop('fax', None)
+        return super().create(validated_data)
+
+
+class EnterpriseInquiryAdminSerializer(serializers.ModelSerializer):
+    assigned_admin = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.filter(is_superuser=True, is_active=True),
+        required=False,
+        allow_null=True,
+    )
+    assigned_admin_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EnterpriseInquiry
+        fields = [
+            'id', 'full_name', 'email', 'phone', 'organization_name', 'website',
+            'linkedin_url', 'note', 'status', 'assigned_admin', 'internal_notes',
+            'created_at', 'custom_plan', 'payment_link_email_sent_at', 'assigned_admin_name',
+        ]
+        read_only_fields = ['id', 'created_at', 'custom_plan', 'payment_link_email_sent_at', 'assigned_admin_name']
+
+    def get_assigned_admin_name(self, obj):
+        if not obj.assigned_admin:
+            return ''
+        return obj.assigned_admin.get_full_name() or obj.assigned_admin.username
+
+
+class EnterprisePlanCreationSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100)
+    customer_email = serializers.EmailField()
+    max_employees = serializers.IntegerField(min_value=1)
+    billing_cycle = serializers.ChoiceField(choices=Subscription.BillingCycle.choices)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('1.00'))
+    currency = serializers.ChoiceField(choices=[('INR', 'INR')], default='INR')
+    duration_count = serializers.IntegerField(min_value=1, max_value=120)
+    features = serializers.JSONField(default=dict)
+    storage_limit_mb = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    included_services = serializers.ListField(child=serializers.CharField(max_length=100), required=False, default=list)
+    additional_services = serializers.CharField(required=False, allow_blank=True, max_length=5000)
+    description = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    terms_conditions = serializers.CharField(required=False, allow_blank=True, max_length=10000)
+    recurring = serializers.BooleanField(default=True)
+
+    def validate_customer_email(self, value):
+        return value.strip().lower()
+
+
+class EnterprisePlanAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Plan
+        fields = [
+            'id', 'name', 'code', 'description', 'currency', 'monthly_price',
+            'yearly_price', 'max_employees', 'features', 'storage_limit_mb',
+            'included_services', 'additional_services', 'terms_conditions',
+            'subscription_total_count', 'razorpay_plan_id', 'is_active', 'created_at',
+        ]
+
+
+class EnterprisePlanUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Plan
+        fields = [
+            'name', 'description', 'currency', 'monthly_price', 'yearly_price',
+            'max_employees', 'features', 'storage_limit_mb', 'included_services',
+            'additional_services', 'terms_conditions', 'subscription_total_count',
+            'is_active',
+        ]
+
+    def validate(self, attrs):
+        plan = self.instance
+        if plan.razorpay_plan_id:
+            for field in ('monthly_price', 'yearly_price', 'subscription_total_count', 'currency'):
+                if field in attrs and attrs[field] != getattr(plan, field):
+                    raise serializers.ValidationError({field: 'Razorpay recurring billing details are immutable. Create a new custom plan for a price or duration change.'})
+        return attrs
 
 class PaymentSerializer(serializers.ModelSerializer):
     class Meta:
@@ -86,6 +249,7 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     plan_details = PlanSerializer(source='plan', read_only=True)
+    organization_name = serializers.CharField(source='organization.name', read_only=True)
     usage = serializers.SerializerMethodField(read_only=True)
     days_remaining = serializers.SerializerMethodField(read_only=True)
 
@@ -93,6 +257,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         model = Subscription
         fields = [
             'id',
+            'organization_name',
             'plan',
             'plan_details',
             'Subscriptioncode',
@@ -131,50 +296,3 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             delta = obj.end_date - timezone.now()
             return max(delta.days, 0)
         return 0
-
-
-class SubscribeSerializer(serializers.Serializer):
-    plan_id = serializers.UUIDField()
-    billing_cycle = serializers.ChoiceField(choices=Subscription.BillingCycle.choices)
-    payment_provider = serializers.CharField(max_length=100, default='MANUAL')
-    provider_payment_id = serializers.CharField(max_length=255, required=False, allow_blank=True)
-
-    def validate_plan_id(self, value):
-        plan = Plan.objects.filter(id=value, is_active=True).first()
-        if not plan:
-            raise serializers.ValidationError("Active plan with this ID was not found.")
-        return value
-
-    def create(self, validated_data):
-        request = self.context.get('request')
-        org = get_user_organization(request.user)
-        plan = Plan.objects.get(id=validated_data['plan_id'])
-        cycle = validated_data['billing_cycle']
-
-        now = timezone.now()
-        if cycle == Subscription.BillingCycle.MONTHLY:
-            end_date = now + timedelta(days=30)
-            amount = plan.monthly_price
-        else:
-            end_date = now + timedelta(days=365)
-            amount = plan.yearly_price
-
-        if amount is None:
-            raise serializers.ValidationError({'billing_cycle': 'This plan requires a negotiated contract or pricing setup before it can be activated.'})
-
-        code = f"SUB-{uuid.uuid4().hex[:8].upper()}"
-
-        with transaction.atomic():
-            Subscription.objects.filter(organization=org,status__in=['active','trialing']).update(status='cancelled',cancelled_at=now)
-            sub = Subscription.objects.create(
-                organization=org, plan=plan, Subscriptioncode=code, billing_cycle=cycle,
-                status='active', start_date=now, end_date=end_date, next_billing_date=end_date.date(),
-            )
-            payment=Payment.objects.create(
-                subscription=sub, amount=amount, currency=getattr(org, 'currency', 'INR'),
-                provider=validated_data.get('payment_provider', 'MANUAL'),
-                provider_payment_id=validated_data.get('provider_payment_id', ''),
-                invoice_reference=f"INV-{sub.Subscriptioncode}", status='succeeded', paid_at=now,
-            )
-            sub.payment=payment; sub.save(update_fields=['payment'])
-        return sub

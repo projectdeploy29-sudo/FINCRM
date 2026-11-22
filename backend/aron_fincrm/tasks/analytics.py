@@ -1,9 +1,11 @@
+from decimal import Decimal
 from django.db.models import Count, Q, Sum
+from django.db.models import DecimalField, ExpressionWrapper, F, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from calendar import monthrange
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from applications.models import FinancialApplication
@@ -80,27 +82,54 @@ def pipeline(request):
     else:
         month_start = today.replace(day=1)
         month_end = today.replace(day=monthrange(today.year, today.month)[1])
-    schedules = RepaymentSchedule.objects.filter(organization=org, lead__in=scoped_leads).select_related('application')
+    payment_totals = RepaymentPayment.objects.filter(
+        repayment_schedule_id=OuterRef('pk'),
+        verification_status='VERIFIED',
+    ).order_by().values('repayment_schedule_id').annotate(total=Sum('amount')).values('total')
+    amount_field = DecimalField(max_digits=15, decimal_places=2)
+    schedules = RepaymentSchedule.objects.filter(
+        organization=org,
+        lead__in=scoped_leads,
+    ).annotate(
+        verified_amount=Coalesce(
+            Subquery(payment_totals, output_field=amount_field),
+            Value(Decimal('0.00')),
+            output_field=amount_field,
+        ),
+    ).annotate(
+        outstanding=ExpressionWrapper(
+            F('expected_amount') - F('verified_amount'),
+            output_field=amount_field,
+        ),
+    )
+    overdue_lead_ids = set(schedules.filter(
+        due_date__lt=today,
+        status__in=['PENDING', 'PARTIAL'],
+        outstanding__gt=0,
+    ).values_list('lead_id', flat=True).distinct())
+    due_lead_ids = set(schedules.filter(
+        due_date__gte=month_start,
+        due_date__lte=month_end,
+    ).values_list('lead_id', flat=True).distinct())
     payments = apply_date_range(RepaymentPayment.objects.filter(organization=org, repayment_schedule__lead__in=scoped_leads), request, 'payment_date')
     in_range = payments.filter(verification_status='VERIFIED').aggregate(total=Sum('amount'))['total'] or 0
+    paid_lead_ids = set(payments.filter(
+        verification_status='VERIFIED',
+    ).values_list('repayment_schedule__lead_id', flat=True).distinct())
+    application_counts = dict(
+        applications.filter(lead__in=scoped_leads)
+        .values_list('lead_id')
+        .annotate(count=Count('id'))
+    )
     rows = []
-    for lead in leads.order_by('-created_at'):
-        related = schedules.filter(lead=lead)
-        overdue = any(
-            schedule.outstanding_amount > 0
-            for schedule in related.filter(
-                due_date__lt=today, status__in=['PENDING', 'PARTIAL'],
-            )
-        )
-        due_this_month = related.filter(due_date__gte=month_start, due_date__lte=month_end).exists()
-        paid_in_range = payments.filter(repayment_schedule__lead=lead, verification_status='VERIFIED').exists()
-        payment_status = 'overdue' if overdue else 'paid' if paid_in_range else 'not_paid'
+    for lead in leads.select_related('assigned_to__user').order_by('-created_at'):
+        payment_status = 'overdue' if lead.pk in overdue_lead_ids else 'paid' if lead.pk in paid_lead_ids else 'not_paid'
         rows.append({
             'id': str(lead.id), 'lead_code': lead.lead_code, 'contact_name': lead.contact_name,
             'status': lead.status, 'expected_amount': lead.expected_amount, 'currency': lead.currency,
             'assigned_to': lead.assigned_to.user.get_full_name() or lead.assigned_to.user.username if lead.assigned_to_id else '',
-            'payment_status': payment_status, 'due_this_month': due_this_month,
-            'application_count': applications.filter(lead=lead).count(),
+            'payment_status': payment_status, 'due_this_month': lead.pk in due_lead_ids,
+            'application_count': application_counts.get(lead.pk, 0),
         })
     return Response({
         'total_leads': len(rows),

@@ -1,8 +1,6 @@
 import uuid
 from django.db import transaction
-from django.utils import timezone
 from rest_framework import serializers
-from django.contrib.auth import get_user_model
 from leads.models import Lead, LeadAssignmentHistory, LeadStatusHistory
 from employes.models import Employee
 from customers.models import Customer, CustomerTag

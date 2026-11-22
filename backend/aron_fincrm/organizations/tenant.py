@@ -1,5 +1,4 @@
 from django.db import models
-from django.core.exceptions import PermissionDenied
 
 
 def get_user_organization(user, request=None):

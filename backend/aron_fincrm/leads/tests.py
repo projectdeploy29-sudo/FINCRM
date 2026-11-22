@@ -4,12 +4,12 @@ from django.core.management import call_command
 from rest_framework import status
 from rest_framework.test import APIClient
 from django.contrib.auth import get_user_model
-from organizations.models import organizations_organization, Department, Team
+from organizations.models import organizations_organization, Department
 from accounts.models import Manager
 from employes.models import Employee
 from permitions.models import Role
-from leads.models import Lead, LeadAssignmentHistory
-from customers.models import Customer, CustomerTag
+from leads.models import Lead
+from customers.models import Customer
 
 User = get_user_model()
 

@@ -1,0 +1,363 @@
+.hierarchy-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin-top: 16px;
+}
+
+/* Summary Bar */
+.hierarchy-summary-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.hierarchy-stat-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.hierarchy-stat-card .stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.hierarchy-stat-card .stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* Controls Bar */
+.hierarchy-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hierarchy-search-box {
+  flex: 1;
+  min-width: 240px;
+  position: relative;
+}
+
+.hierarchy-search-box input {
+  width: 100%;
+  padding: 8px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #ffffff;
+}
+
+.hierarchy-search-box input:focus {
+  outline: none;
+  border-color: #1764e8;
+  box-shadow: 0 0 0 2px rgba(23, 100, 232, 0.15);
+}
+
+.hierarchy-toggle-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hierarchy-toggle-btn:hover {
+  background: #f1f5f9;
+}
+
+/* Hierarchy Tree */
+.hierarchy-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Department Card */
+.hierarchy-dept-card {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.hierarchy-dept-header {
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 14px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.hierarchy-dept-header:hover {
+  background: #f1f5f9;
+}
+
+.hierarchy-dept-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hierarchy-dept-title h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.hierarchy-dept-desc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.hierarchy-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  text-transform: capitalize;
+}
+
+.hierarchy-badge.active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.hierarchy-badge.inactive {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.hierarchy-dept-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Manager Card */
+.hierarchy-manager-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hierarchy-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hierarchy-person-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.hierarchy-manager-card {
+  background: #f0f7ff;
+  border-color: #bfdbfe;
+}
+
+.hierarchy-person-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hierarchy-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #1764e8;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hierarchy-avatar.tl-avatar {
+  background: #0284c7;
+}
+
+.hierarchy-avatar.emp-avatar {
+  background: #475569;
+}
+
+.hierarchy-person-details h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.hierarchy-person-role {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #475569;
+}
+
+.hierarchy-person-code {
+  display: inline-block;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+
+.hierarchy-person-contact {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.hierarchy-person-contact a {
+  color: #1764e8;
+  text-decoration: none;
+}
+
+.hierarchy-person-contact a:hover {
+  text-decoration: underline;
+}
+
+/* Teams Container */
+.hierarchy-teams-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-left: 16px;
+  border-left: 2px dashed #cbd5e1;
+}
+
+.hierarchy-team-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.hierarchy-team-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.hierarchy-team-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+/* Employees Grid */
+.hierarchy-employees-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.hierarchy-employee-pill {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hierarchy-employee-pill .emp-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.hierarchy-employee-pill .emp-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.hierarchy-employee-pill .emp-designation {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.hierarchy-employee-pill .emp-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #edf2f7;
+}
+
+.hierarchy-empty-note {
+  font-size: 13px;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 8px 0;
+}
+
+@media (max-width: 640px) {
+  .hierarchy-teams-container {
+    padding-left: 8px;
+    border-left: none;
+  }
+  .hierarchy-person-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .hierarchy-employees-grid {
+    grid-template-columns: 1fr;
+  }
+}

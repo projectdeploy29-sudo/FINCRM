@@ -52,6 +52,7 @@ export default function PlanCatalog({ api, user }) {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [failedPayment, setFailedPayment] = useState(null)
+  const [inquiryRequestKey, setInquiryRequestKey] = useState(() => crypto.randomUUID())
 
   useEffect(() => {
     let active = true
@@ -69,11 +70,11 @@ export default function PlanCatalog({ api, user }) {
     return () => { active = false }
   }, [api])
 
-  async function post(path, body) {
-    if (api) return api.post(path, body)
+  async function post(path, body, headers = {}) {
+    if (api) return api.post(path, body, headers)
     const response = await fetch(`${API_ROOT}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(body),
     })
     const data = await readApiResponse(response)
@@ -86,6 +87,7 @@ export default function PlanCatalog({ api, user }) {
     setMessage('')
     if (plan.code === 'enterprise') {
       setInquiry((current) => ({ ...current, email: user?.email || current.email }))
+      setInquiryRequestKey(crypto.randomUUID())
       setEnterpriseOpen(true)
       return
     }
@@ -155,10 +157,11 @@ export default function PlanCatalog({ api, user }) {
     setError('')
     setMessage('')
     try {
-      const result = await post('/subscriptions/enterprise-inquiry/', inquiry)
+      const result = await post('/subscriptions/enterprise-inquiry/', inquiry, { 'Idempotency-Key': inquiryRequestKey })
       setMessage(result.detail)
       setEnterpriseOpen(false)
       setInquiry(emptyInquiry)
+      setInquiryRequestKey(crypto.randomUUID())
     } catch (exception) {
       setError(exception.message)
     } finally {
@@ -185,14 +188,14 @@ export default function PlanCatalog({ api, user }) {
       return <article className={`plan-card ${plan.code === 'starter' ? 'popular' : ''}`} key={plan.id}>
         <div className="plan-title"><h2>{plan.name}</h2>{plan.code === 'starter' && <span>POPULAR</span>}</div>
         <p className="plan-description">{plan.description}</p>
-        <div className="plan-price">{custom ? 'Custom pricing' : money(price)}{!custom && price != null && <small> / {cycle === 'YEARLY' ? 'year' : 'month'}</small>}</div>
+        <div className="plan-price">{custom ? 'Custom pricing' : plan.checkout_enabled ? money(price) : 'Pricing pending confirmation'}{!custom && plan.checkout_enabled && price != null && <small> / {cycle === 'YEARLY' ? 'year' : 'month'}</small>}</div>
         <ul>
           <li>{limit(plan.max_employees)} Staff Accounts</li>
           <li>{limit(plan.max_leads)} Leads</li>
           {features.map((feature) => <li key={feature}>{feature}</li>)}
         </ul>
-        <button type="button" className="plan-cta" onClick={() => choosePlan(plan)}>
-          {custom ? 'Contact sales' : price == null ? 'Unavailable' : 'Select plan'} <span aria-hidden="true">⟶</span>
+        <button type="button" className="plan-cta" disabled={!custom && (!plan.checkout_enabled || price == null)} onClick={() => choosePlan(plan)}>
+          {custom ? 'Contact sales' : !plan.checkout_enabled || price == null ? 'Unavailable' : 'Select plan'} <span aria-hidden="true">⟶</span>
         </button>
       </article>
     })}</div>}
@@ -223,6 +226,7 @@ export default function PlanCatalog({ api, user }) {
             <label>Organization website <span>(optional)</span><input type="url" value={inquiry.website} onChange={(event) => setInquiry({ ...inquiry, website: event.target.value })} /></label>
             <label>LinkedIn link <span>(optional)</span><input type="url" value={inquiry.linkedin_url} onChange={(event) => setInquiry({ ...inquiry, linkedin_url: event.target.value })} /></label>
             <label className="enterprise-note">Note <span>(optional)</span><textarea rows={3} maxLength={5000} value={inquiry.note} onChange={(event) => setInquiry({ ...inquiry, note: event.target.value })} /></label>
+            <label aria-hidden="true" className="enterprise-honeypot">Fax<input tabIndex={-1} autoComplete="off" value={inquiry.fax || ''} onChange={(event) => setInquiry({ ...inquiry, fax: event.target.value })} /></label>
           </div>
           <div className="plan-modal-actions"><button type="button" onClick={() => setEnterpriseOpen(false)}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Submit inquiry'}</button></div>
         </form>

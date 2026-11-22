@@ -54,6 +54,7 @@ export const modules = [
   { id: 'plans', label: 'Subscription plans', endpoint: '/subscriptions/plans/', minLevel: 30, fields: [], readOnly: true },
   { id: 'subscription', label: 'My subscription', endpoint: '/subscriptions/current/', minLevel: 90, fields: [], readOnly: true, single: true },
   { id: 'billing', label: 'Billing history', endpoint: '/subscriptions/payments/', minLevel: 90, fields: [], readOnly: true },
+  { id: 'enterprise-management', label: 'Enterprise inquiries', endpoint: '/subscriptions/enterprise/manage/', minLevel: 100, fields: [], readOnly: true },
   { id: 'hierarchy', label: 'Organization hierarchy', endpoint: '/organizations/hierarchy/tree/', minLevel: 50, fields: [], readOnly: true, single: true },
   { id: 'organization', label: 'Organization settings', endpoint: '/organizations/current/', minLevel: 90, fields: [text('name'), text('legal_name'), text('email', 'email', 'email'), text('phone'), text('website', 'website', 'url'), text('address_line1'), text('city'), text('state'), text('pin_code'), text('country'), text('timezone'), text('currency')], single: true },
   { id: 'today', label: 'Today: tasks & follow-ups', endpoint: '/tasks/today/', minLevel: 30, fields: [], readOnly: true, type: 'today' },

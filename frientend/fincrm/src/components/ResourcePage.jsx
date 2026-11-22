@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { unwrapList } from '../api'
 import RecordForm from './RecordForm'
 import WhatsAppComposer from './WhatsAppComposer'
+import OrganizationHierarchyView from './OrganizationHierarchyView'
 import { modules as moduleDefinitions, onboardingFields } from '../config/modules'
 
 function rowLabel(row) { return row.user_details?.full_name || row.full_name || row.contact_name || row.title || row.name || row.application_code || row.customer_code || row.lead_code || row.id }
@@ -216,8 +217,8 @@ export default function ResourcePage({ module, api, user, readOnlyPortal = false
     {module.id === 'employees' && module.history && <p>Staff records can be updated from the employee list. Use this form to onboard a manager, team lead, or employee.</p>}
     {!module.single && <label>Search records <input value={search} onChange={(event) => setSearch(event.target.value)} /></label>}
     {loading && <p>Loading…</p>}{error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
-    {module.id === 'hierarchy' && <pre>{JSON.stringify(single, null, 2)}</pre>}
-    {module.single && single && <><dl>{Object.entries(single).map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{cellValue(value)}</dd></div>)}</dl>{!module.readOnly && <button type="button" onClick={() => setForm({ row: single, title: `Edit ${module.label}` })}>Edit settings</button>}</>}
+    {module.id === 'hierarchy' && <OrganizationHierarchyView data={single} />}
+    {module.single && module.id !== 'hierarchy' && single && <><dl>{Object.entries(single).map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{cellValue(value)}</dd></div>)}</dl>{!module.readOnly && <button type="button" onClick={() => setForm({ row: single, title: `Edit ${module.label}` })}>Edit settings</button>}</>}
     {module.id === 'subscription' && single?.has_active_subscription && <button type="button" onClick={() => { if (window.confirm('Cancel the current subscription?')) api.post('/subscriptions/cancel/', {}).then(() => load()).catch((exception) => setError(exception.message)) }}>Cancel subscription</button>}
     {visibleRows.length > 0 && !module.single && <table>
       <thead><tr>{columns.map((column) => <th key={column}>{staffColumnLabels[column] || humanize(column)}</th>)}<th>Actions</th></tr></thead>

@@ -35,6 +35,24 @@ def entitlement_value(organization, name):
     return getattr(subscription.plan, name, None)
 
 
+def enforce_feature(organization, feature):
+    """Enforce an explicit feature flag when an active/trial plan supplies one.
+
+    Behavior for organizations without an active subscription remains a separate
+    product-policy decision and is intentionally not inferred here.
+    """
+    if not organization:
+        raise serializers.ValidationError({'organization': 'An organization is required.'})
+    subscription = active_subscription(organization)
+    if not subscription or not subscription.plan:
+        return
+    features = subscription.plan.features
+    if not isinstance(features, dict) or not features.get(feature, False):
+        raise serializers.ValidationError({
+            'subscription': f'This plan does not include {feature.replace("_", " ")}. Upgrade to a plan that includes this feature.'
+        })
+
+
 def resource_usage(organization, resource):
     if resource == 'leads':
         return Lead.objects.filter(organization=organization).count()

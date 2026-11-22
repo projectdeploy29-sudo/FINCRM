@@ -1,9 +1,12 @@
+from datetime import timedelta
+
 from django.test import TestCase
 from django.urls import reverse
 from django.core.management import call_command
 from rest_framework import status
 from rest_framework.test import APIClient
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from organizations.models import organizations_organization, Department, Team
 from accounts.models import Manager, TeamLead
 from employes.models import Employee, EmployeeAssignmentHistory
@@ -233,7 +236,8 @@ class Stage2HierarchyAndStaffTests(TestCase):
 
         growth_plan = Plan.objects.get(code='growth')
 
-        # 2. Subscribe to Growth Plan
+        # Direct activation must stay disabled; subscriptions are created only
+        # after a verified provider checkout.
         sub_res = self.client.post(
             reverse('subscription_subscribe'),
             {
@@ -244,8 +248,19 @@ class Stage2HierarchyAndStaffTests(TestCase):
             },
             format='json'
         )
-        self.assertEqual(sub_res.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(sub_res.json()['status'], 'active')
+        self.assertEqual(sub_res.status_code, status.HTTP_410_GONE)
+        self.assertIn('Razorpay checkout', sub_res.json()['detail'])
+
+        now = timezone.now()
+        subscription = Subscription.objects.create(
+            organization=self.org,
+            plan=growth_plan,
+            Subscriptioncode='SUB-TEST-GROWTH',
+            billing_cycle='MONTHLY',
+            status=Subscription.Status.ACTIVE,
+            start_date=now,
+            end_date=now + timedelta(days=30),
+        )
 
         # 3. Check Current Subscription
         curr_res = self.client.get(reverse('subscription_current'))
@@ -255,3 +270,9 @@ class Stage2HierarchyAndStaffTests(TestCase):
         self.assertEqual(curr_data['plan_details']['code'], 'growth')
         self.assertIn('usage', curr_data)
         self.assertEqual(curr_data['usage']['max_staff_allowed'], 200)
+
+        subscription.end_date = now - timedelta(days=1)
+        subscription.save(update_fields=['end_date'])
+        expired = self.client.get(reverse('subscription_current'))
+        self.assertEqual(expired.status_code, status.HTTP_200_OK, expired.data)
+        self.assertFalse(expired.data['has_active_subscription'])
