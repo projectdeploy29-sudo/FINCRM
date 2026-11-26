@@ -14,6 +14,7 @@ from pathlib import Path
 import os
 from urllib.parse import urlparse
 from django.core.exceptions import ImproperlyConfigured
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -53,23 +54,31 @@ _load_project_env()
 
 # Development remains easy to run locally, while production must provide its
 # own secret and explicitly configure allowed hosts and browser origins.
-DEBUG = os.environ.get('DJANGO_DEBUG', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+# Accept the conventional deployment names as well as the existing project
+# names so current .env.production files continue to work unchanged.
+DEBUG = os.environ.get('DEBUG', os.environ.get('DJANGO_DEBUG', 'true')).strip().lower() in {
+    '1', 'true', 'yes', 'on',
+}
+SECRET_KEY = os.environ.get('SECRET_KEY') or os.environ.get('DJANGO_SECRET_KEY')
 if not SECRET_KEY:
     if not DEBUG:
-        raise ImproperlyConfigured('Set DJANGO_SECRET_KEY when DJANGO_DEBUG is false.')
+        raise ImproperlyConfigured('Set SECRET_KEY (or DJANGO_SECRET_KEY) when DEBUG is false.')
     SECRET_KEY = 'fincrm-local-development-only-change-before-deployment'
 
 def _csv_setting(name, default=''):
     return [value.strip() for value in os.environ.get(name, default).split(',') if value.strip()]
 
 
+_default_allowed_hosts = ','.join(filter(None, [
+    'localhost,127.0.0.1,[::1]' if DEBUG else '',
+    urlparse(os.environ.get('BACKEND_URL', '')).hostname or '',
+]))
 ALLOWED_HOSTS = _csv_setting(
-    'DJANGO_ALLOWED_HOSTS',
-    ','.join(filter(None, ['localhost,127.0.0.1,[::1]' if DEBUG else '', urlparse(os.environ.get('BACKEND_URL', '')).hostname or ''])),
+    'ALLOWED_HOSTS',
+    os.environ.get('DJANGO_ALLOWED_HOSTS', _default_allowed_hosts),
 )
 if not DEBUG and not ALLOWED_HOSTS:
-    raise ImproperlyConfigured('Set DJANGO_ALLOWED_HOSTS when DJANGO_DEBUG is false.')
+    raise ImproperlyConfigured('Set ALLOWED_HOSTS (or DJANGO_ALLOWED_HOSTS) when DEBUG is false.')
 
 
 # Application definition
@@ -110,6 +119,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -194,8 +204,15 @@ def _database_config(environ=None):
     }
 
 
-# SQLite remains the default for development; PostgreSQL is explicit opt-in.
-DATABASES = _database_config()
+# DATABASE_URL is the deployment standard. Keep the existing DB_ENGINE and
+# DB_* configuration as a fallback for current local and hosted environments.
+DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+if DATABASE_URL:
+    DATABASES = {
+        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600),
+    }
+else:
+    DATABASES = _database_config()
 
 
 # Password validation
@@ -232,7 +249,16 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 
 # Email
