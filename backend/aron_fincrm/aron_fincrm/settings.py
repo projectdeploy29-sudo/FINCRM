@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 from pathlib import Path
 import os
+from urllib.parse import urlparse
 from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -19,28 +20,29 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def _load_project_env():
-    """Load local .env values without overriding environment-provided settings."""
-    env_path = BASE_DIR / '.env'
-    if not env_path.is_file():
-        return
-    try:
-        lines = env_path.read_text(encoding='utf-8').splitlines()
-    except OSError:
-        return
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith('#'):
+    """Load local development and shared production env files without overriding the process environment."""
+    env_paths = (BASE_DIR / '.env', BASE_DIR.parent.parent / '.env.production')
+    for env_path in env_paths:
+        if not env_path.is_file():
             continue
-        if line.startswith('export '):
-            line = line[7:].lstrip()
-        key, separator, value = line.partition('=')
-        key = key.strip()
-        if not separator or not key or key in os.environ:
+        try:
+            lines = env_path.read_text(encoding='utf-8').splitlines()
+        except OSError:
             continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
-        os.environ[key] = value
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line.startswith('export '):
+                line = line[7:].lstrip()
+            key, separator, value = line.partition('=')
+            key = key.strip()
+            if not separator or not key or key in os.environ:
+                continue
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            os.environ[key] = value
 
 
 _load_project_env()
@@ -64,7 +66,7 @@ def _csv_setting(name, default=''):
 
 ALLOWED_HOSTS = _csv_setting(
     'DJANGO_ALLOWED_HOSTS',
-    'localhost,127.0.0.1,[::1]' if DEBUG else '',
+    ','.join(filter(None, ['localhost,127.0.0.1,[::1]' if DEBUG else '', urlparse(os.environ.get('BACKEND_URL', '')).hostname or ''])),
 )
 if not DEBUG and not ALLOWED_HOSTS:
     raise ImproperlyConfigured('Set DJANGO_ALLOWED_HOSTS when DJANGO_DEBUG is false.')
@@ -74,6 +76,7 @@ if not DEBUG and not ALLOWED_HOSTS:
 
 INSTALLED_APPS = [
     'accounts',
+    # Retained only so Django can apply the historical migrations that drop its tables.
     'applications',
     'communications',
     'customers',
@@ -87,6 +90,7 @@ INSTALLED_APPS = [
     'tasks',
     'whatsapp',
     'ai_assistant',
+    'ui_knowledge',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -130,6 +134,8 @@ TEMPLATES = [
         },
     },
 ]
+
+CORS_ALLOWED_ORIGINS = []
 
 WSGI_APPLICATION = 'aron_fincrm.wsgi.application'
 
@@ -252,6 +258,7 @@ ENTERPRISE_INQUIRY_ADMIN_EMAIL = os.environ.get(
     'ENTERPRISE_INQUIRY_ADMIN_EMAIL', EMAIL_HOST_USER,
 ).strip()
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173').strip().rstrip('/')
+PASSWORD_RESET_TIMEOUT = 60 * 60 * 12
 RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '').strip()
 RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '').strip()
 RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '').strip()
@@ -322,17 +329,21 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_CREDENTIALS = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 if DEBUG:
     CORS_ALLOWED_ORIGINS = _csv_setting(
         'CORS_ALLOWED_ORIGINS',
-        'http://localhost:5173,http://127.0.0.1:5173',
+        ','.join(filter(None, ['http://localhost:5173,http://127.0.0.1:5173', FRONTEND_URL])),
     )
 else:
-    CORS_ALLOWED_ORIGINS = _csv_setting('CORS_ALLOWED_ORIGINS')
+    CORS_ALLOWED_ORIGINS = _csv_setting('CORS_ALLOWED_ORIGINS', FRONTEND_URL)
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_REFERRER_POLICY = 'same-origin'
-CSRF_TRUSTED_ORIGINS = _csv_setting('CSRF_TRUSTED_ORIGINS')
+CSRF_TRUSTED_ORIGINS = _csv_setting(
+    'CSRF_TRUSTED_ORIGINS',
+    FRONTEND_URL,
+)
 from corsheaders.defaults import default_headers
 CORS_ALLOW_HEADERS = [*default_headers, 'x-active-role', 'idempotency-key']

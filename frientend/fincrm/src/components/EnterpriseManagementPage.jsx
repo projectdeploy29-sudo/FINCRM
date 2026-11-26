@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
+import LoadingSkeleton from './LoadingSkeleton'
 import './EnterpriseManagementPage.css'
 
 const statusOptions = ['pending', 'new', 'in_review', 'contacted', 'under_discussion', 'approved', 'rejected', 'plan_created', 'payment_pending', 'completed', 'converted', 'closed']
@@ -7,10 +8,8 @@ const emptyPlan = { name: 'Enterprise Custom', customer_email: '', max_employees
 export default function EnterpriseManagementPage({ api }) {
   const [data, setData] = useState(null)
   const [selectedId, setSelectedId] = useState('')
-  const [plan, setPlan] = useState(emptyPlan)
-  const [statusValue, setStatusValue] = useState('new')
-  const [notes, setNotes] = useState('')
-  const [assignedAdmin, setAssignedAdmin] = useState('')
+  const [planDraft, setPlanDraft] = useState(null)
+  const [reviewDraft, setReviewDraft] = useState(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -19,7 +18,14 @@ export default function EnterpriseManagementPage({ api }) {
   const [editingPlanId, setEditingPlanId] = useState('')
   const [editingPlan, setEditingPlan] = useState(null)
   const [editingInquiry, setEditingInquiry] = useState(null)
+  const [invoiceDraft, setInvoiceDraft] = useState(null)
+  const [paymentGSTINs, setPaymentGSTINs] = useState({})
   const selected = data?.requests?.find((item) => item.id === selectedId)
+  const review = reviewDraft?.id === selectedId ? reviewDraft : null
+  const statusValue = review?.status ?? selected?.status ?? 'new'
+  const notes = review?.notes ?? selected?.internal_notes ?? ''
+  const assignedAdmin = review?.assignedAdmin ?? selected?.assigned_admin ?? ''
+  const plan = planDraft?.id === selectedId ? planDraft.value : { ...emptyPlan, customer_email: selected?.email || '' }
   const visibleRequests = (data?.requests || []).filter((item) => {
     const query = search.trim().toLowerCase()
     const matchesText = !query || [item.full_name, item.email, item.organization_name].some((value) => value.toLowerCase().includes(query))
@@ -29,16 +35,27 @@ export default function EnterpriseManagementPage({ api }) {
   const reload = useCallback(async () => {
     const result = await api.get('/subscriptions/enterprise/manage/')
     setData(result)
+    setInvoiceDraft(result.invoice_settings || {})
   }, [api])
 
-  useEffect(() => { reload().catch((exception) => setError(exception.message)) }, [reload])
   useEffect(() => {
-    if (!selected) return
-    setStatusValue(selected.status)
-    setNotes(selected.internal_notes || '')
-    setAssignedAdmin(selected.assigned_admin || '')
-    setPlan((current) => ({ ...current, customer_email: selected.email }))
-  }, [selectedId])
+    let active = true
+    api.get('/subscriptions/enterprise/manage/')
+      .then((result) => { if (active) { setData(result); setInvoiceDraft(result.invoice_settings || {}) } })
+      .catch((exception) => { if (active) setError(exception.message) })
+    return () => { active = false }
+  }, [api])
+
+  function selectInquiry(id) {
+    if (id === selectedId) return
+    const nextSelected = data?.requests?.find((item) => item.id === id)
+    setPlanDraft((current) => {
+      const previousPlan = current?.id === selectedId ? current.value : { ...emptyPlan, customer_email: selected?.email || '' }
+      return { id, value: { ...previousPlan, customer_email: nextSelected?.email || '' } }
+    })
+    setReviewDraft(null)
+    setSelectedId(id)
+  }
 
   async function run(action, success) {
     setBusy(true); setError(''); setMessage('')
@@ -47,7 +64,23 @@ export default function EnterpriseManagementPage({ api }) {
     finally { setBusy(false) }
   }
 
-  function updatePlan(key, value) { setPlan((current) => ({ ...current, [key]: value })) }
+  function updatePlan(key, value) {
+    setPlanDraft((current) => {
+      const base = current?.id === selectedId ? current.value : { ...emptyPlan, customer_email: selected?.email || '' }
+      return { id: selectedId, value: { ...base, [key]: value } }
+    })
+  }
+  function updateReview(key, value) {
+    setReviewDraft((current) => {
+      const base = current?.id === selectedId ? current : {
+        id: selectedId,
+        status: selected?.status || 'new',
+        notes: selected?.internal_notes || '',
+        assignedAdmin: selected?.assigned_admin || '',
+      }
+      return { ...base, [key]: value }
+    })
+  }
   async function saveReview(event) {
     event.preventDefault()
     await run(() => api.patch(`/subscriptions/enterprise/manage/${selected.id}/`, { status: statusValue, internal_notes: notes, assigned_admin: assignedAdmin || null }), 'Inquiry review saved.')
@@ -55,6 +88,14 @@ export default function EnterpriseManagementPage({ api }) {
   async function saveCustomerDetails(event) {
     event.preventDefault()
     await run(async () => { await api.patch(`/subscriptions/enterprise/manage/${selected.id}/`, editingInquiry); setEditingInquiry(null) }, 'Customer details updated.')
+  }
+  async function saveInvoiceSettings(event) {
+    event.preventDefault()
+    await run(() => api.patch('/subscriptions/enterprise/manage/', { invoice_settings: invoiceDraft }), 'Invoice issuer and GST settings saved.')
+  }
+  async function savePaymentGSTIN(paymentId) {
+    const gstin = paymentGSTINs[paymentId] ?? data?.payments?.find((payment) => payment.id === paymentId)?.invoice_customer_gstin ?? ''
+    await run(() => api.patch(`/subscriptions/enterprise/manage/payments/${paymentId}/invoice-details/`, { invoice_customer_gstin: gstin }), 'Customer GSTIN saved for this payment. Future invoice downloads will use it.')
   }
   async function createPlan(event) {
     event.preventDefault()
@@ -81,16 +122,30 @@ export default function EnterpriseManagementPage({ api }) {
     await run(async () => { await api.patch(`/subscriptions/enterprise/manage/plans/${editingPlanId}/`, body); setEditingPlanId(''); setEditingPlan(null) }, 'Custom plan updated.')
   }
 
-  if (!data && !error) return <section className="page"><h2>Enterprise management</h2><p>Loading inquiries…</p></section>
+  if (!data && !error) return <section className="page"><h2>Enterprise management</h2><p>Review customer requests and negotiated plans.</p><LoadingSkeleton label="Loading enterprise inquiries" /></section>
   return <section className="page enterprise-management">
     <h2>Enterprise management</h2>
     <p>Review custom pricing requests, create an agreed plan, and send a payment invitation after approval.</p>
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
+    <section className="invoice-settings-panel">
+      <h3>Payment document issuer and GST details</h3>
+      <p>These details appear on newly generated GST test drafts. They remain clearly marked as drafts and are not valid tax invoices.</p>
+      {invoiceDraft && <form className="enterprise-admin-form" onSubmit={saveInvoiceSettings}>
+        <div className="enterprise-admin-fields">
+          <label>Legal billing name<input maxLength="255" value={invoiceDraft.invoice_issuer_name || ''} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoice_issuer_name: event.target.value })} /></label>
+          <label>Supplier GSTIN<input maxLength="20" value={invoiceDraft.invoice_issuer_gstin || ''} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoice_issuer_gstin: event.target.value.toUpperCase() })} /></label>
+          <label>Supplier billing address<textarea maxLength="4000" rows="3" value={invoiceDraft.invoice_issuer_address || ''} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoice_issuer_address: event.target.value })} /></label>
+          <label>SAC / HSN code<input maxLength="30" value={invoiceDraft.invoice_sac_hsn_code || ''} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoice_sac_hsn_code: event.target.value })} /></label>
+          <label>GST rate (%)<input type="number" min="0" max="100" step="0.01" value={invoiceDraft.invoice_gst_rate_percent ?? ''} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoice_gst_rate_percent: event.target.value === '' ? null : event.target.value })} /></label>
+        </div>
+        <button disabled={busy}>Save document details</button>
+      </form>}
+    </section>
     <div className="enterprise-admin-grid">
       <section><h3>Inquiries ({data?.requests?.length || 0})</h3>
         <div className="enterprise-search"><input aria-label="Search inquiries" placeholder="Search name, email, organization" value={search} onChange={(event) => setSearch(event.target.value)} /><select aria-label="Filter inquiry status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All statuses</option>{statusOptions.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></div>
         <div className="table-scroll"><table><thead><tr><th>Request ID</th><th>Organization</th><th>Contact</th><th>Status</th><th>Assigned admin</th><th>Received</th></tr></thead><tbody>
-          {visibleRequests.map((item) => <tr key={item.id} onClick={() => setSelectedId(item.id)} aria-selected={item.id === selectedId} tabIndex="0" onKeyDown={(event) => event.key === 'Enter' && setSelectedId(item.id)}>
+          {visibleRequests.map((item) => <tr key={item.id} onClick={() => selectInquiry(item.id)} aria-selected={item.id === selectedId} tabIndex="0" onKeyDown={(event) => event.key === 'Enter' && selectInquiry(item.id)}>
             <td title={item.id}>{item.id.slice(0, 8)}</td><td>{item.organization_name}</td><td>{item.full_name}<br />{item.email}</td><td>{item.status}</td><td>{item.assigned_admin_name || 'Unassigned'}</td><td>{new Date(item.created_at).toLocaleDateString()}</td>
           </tr>)}
         </tbody></table></div>
@@ -106,9 +161,9 @@ export default function EnterpriseManagementPage({ api }) {
             <label className="enterprise-note">Requirements / notes<textarea value={editingInquiry.note} onChange={(event) => setEditingInquiry({ ...editingInquiry, note: event.target.value })} /></label>
           </div><button disabled={busy}>Save customer details</button><button type="button" onClick={() => setEditingInquiry(null)}>Cancel</button></form>}
           <form onSubmit={saveReview} className="enterprise-admin-form">
-            <label>Status<select value={statusValue} onChange={(event) => setStatusValue(event.target.value)}>{statusOptions.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></label>
-            <label>Assigned admin<select value={assignedAdmin} onChange={(event) => setAssignedAdmin(event.target.value)}><option value="">Unassigned</option>{(data?.administrators || []).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
-            <label>Internal notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows="3" /></label>
+            <label>Status<select value={statusValue} onChange={(event) => updateReview('status', event.target.value)}>{statusOptions.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></label>
+            <label>Assigned admin<select value={assignedAdmin} onChange={(event) => updateReview('assignedAdmin', event.target.value)}><option value="">Unassigned</option>{(data?.administrators || []).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+            <label>Internal notes<textarea value={notes} onChange={(event) => updateReview('notes', event.target.value)} rows="3" /></label>
             <button disabled={busy}>Save review</button>
           </form>
           {selected.custom_plan ? <div><h4>Plan: {data?.plans?.find((item) => item.id === selected.custom_plan)?.name || selected.custom_plan}</h4><button type="button" disabled={busy || Boolean(selected.payment_link_email_sent_at) || !['plan_created', 'payment_pending'].includes(selected.status)} onClick={invite}>{selected.payment_link_email_sent_at ? 'Payment invitation sent' : 'Send payment invitation'}</button></div> : <form onSubmit={createPlan} className="enterprise-admin-form">
@@ -159,13 +214,36 @@ export default function EnterpriseManagementPage({ api }) {
     </div><div className="enterprise-admin-actions"><button disabled={busy}>Save plan</button><button type="button" onClick={() => { setEditingPlan(null); setEditingPlanId('') }}>Close</button></div></form>}
     </section>
     <div className="enterprise-admin-grid">
-      <section><h3>Subscriptions</h3><div className="table-scroll"><table><thead><tr><th>Organization</th><th>Plan</th><th>Status</th><th>End date</th></tr></thead><tbody>
-        {(data?.subscriptions || []).map((row) => <tr key={row.id}><td>{row.organization_name}</td><td>{row.plan_details?.name}</td><td>{row.status}</td><td>{row.end_date ? new Date(row.end_date).toLocaleDateString() : '—'}</td></tr>)}
-        {!data?.subscriptions?.length && <tr><td colSpan="4">No Enterprise subscriptions yet.</td></tr>}
+      <section><h3>All subscriptions ({data?.subscriptions?.length || 0})</h3><p>AI token usage is provider-reported and tracked from this release onward.</p><div className="table-scroll"><table className="subscription-admin-table"><thead><tr><th>Purchaser</th><th>Organization</th><th>Plan</th><th>Status</th><th>Staff accounts</th><th>AI tokens today</th><th>Payment</th><th>Registration</th></tr></thead><tbody>
+        {(data?.subscriptions || []).map((row) => <Fragment key={row.id}>
+          <tr>
+            <td>{row.purchaser?.name || '—'}<br /><small>{row.purchaser?.email || '—'}</small>{row.purchaser?.username && <><br /><small>@{row.purchaser.username}</small></>}</td>
+            <td>{row.organization_name || '—'}</td>
+            <td>{row.plan_details?.name || '—'}<br /><small>{row.billing_cycle || '—'}</small></td>
+            <td>{row.status}</td>
+            <td>{row.staff_accounts?.used ?? 0} / {row.staff_accounts?.limit ?? 'Unlimited'}<br /><small>{row.staff_accounts?.remaining == null ? 'No seat limit' : `${row.staff_accounts.remaining} remaining`}</small></td>
+            <td>{(row.ai_tokens?.used ?? 0).toLocaleString()} / {row.ai_tokens?.limit == null ? 'Unlimited' : row.ai_tokens.limit.toLocaleString()}<br /><small>{row.ai_tokens?.remaining == null ? 'No daily limit' : `${row.ai_tokens.remaining.toLocaleString()} remaining`}</small></td>
+            <td>{row.payment_amount ? `${row.payment_currency} ${row.payment_amount}` : '—'}</td>
+            <td>{row.registration_status || '—'}</td>
+          </tr>
+          <tr className="subscription-admin-detail-row"><td colSpan="8"><details><summary>Full details</summary><div className="subscription-admin-details">
+            <span><b>Phone</b>{row.purchaser?.phone || '—'}</span>
+            <span><b>Registered</b>{row.purchaser?.registered_at ? new Date(row.purchaser.registered_at).toLocaleString() : '—'}</span>
+            <span><b>Billing period</b>{row.start_date ? new Date(row.start_date).toLocaleDateString() : '—'} – {row.end_date ? new Date(row.end_date).toLocaleDateString() : '—'}</span>
+            <span><b>Next billing date</b>{row.next_billing_date ? new Date(row.next_billing_date).toLocaleDateString() : '—'}</span>
+            <span><b>Staff breakdown</b>{row.staff_accounts?.employees ?? 0} employees · {row.staff_accounts?.managers ?? 0} managers · {row.staff_accounts?.team_leads ?? 0} team leads ({row.staff_accounts?.active ?? 0} active)</span>
+            <span><b>Leads</b>{row.usage?.leads_count ?? 0} / {row.usage?.max_leads_allowed ?? 'Unlimited'}</span>
+            <span><b>Token input / output today</b>{(row.ai_tokens?.input_used ?? 0).toLocaleString()} / {(row.ai_tokens?.output_used ?? 0).toLocaleString()}</span>
+            <span><b>Checkout</b>{row.checkout_status || '—'}</span>
+            <span><b>Razorpay payment ID</b>{row.payment_id || '—'}</span>
+            <span><b>Organization</b>{row.organization_name || '—'}</span>
+          </div></details></td></tr>
+        </Fragment>)}
+        {!data?.subscriptions?.length && <tr><td colSpan="8">No subscriptions found.</td></tr>}
       </tbody></table></div></section>
-      <section><h3>Payments</h3><div className="table-scroll"><table><thead><tr><th>Amount</th><th>Provider payment</th><th>Status</th><th>Paid</th></tr></thead><tbody>
-        {(data?.payments || []).map((row) => <tr key={row.id}><td>{row.currency} {row.amount}</td><td>{row.provider_payment_id || '—'}</td><td>{row.status}</td><td>{row.paid_at ? new Date(row.paid_at).toLocaleDateString() : '—'}</td></tr>)}
-        {!data?.payments?.length && <tr><td colSpan="4">No Enterprise payments yet.</td></tr>}
+      <section><h3>Payments</h3><div className="table-scroll"><table className="payment-admin-table"><thead><tr><th>Customer / organization</th><th>Plan</th><th>Amount</th><th>Provider payment</th><th>Status / paid</th><th>Customer GSTIN for draft</th></tr></thead><tbody>
+        {(data?.payments || []).map((row) => <tr key={row.id}><td>{row.purchaser_email || '—'}<br /><small>{row.organization_name || 'Registration pending'}</small></td><td>{row.plan_name || '—'}<br /><small>{row.billing_cycle || '—'}</small></td><td>{row.currency} {row.amount}</td><td>{row.provider_payment_id || '—'}</td><td>{row.status}<br /><small>{row.paid_at ? new Date(row.paid_at).toLocaleDateString() : '—'}</small></td><td><div className="payment-gstin-editor"><input aria-label={`Customer GSTIN for ${row.organization_name || row.id}`} maxLength="20" value={paymentGSTINs[row.id] ?? row.invoice_customer_gstin ?? ''} onChange={(event) => setPaymentGSTINs({ ...paymentGSTINs, [row.id]: event.target.value.toUpperCase() })} placeholder="NA" /><button type="button" disabled={busy} onClick={() => savePaymentGSTIN(row.id)}>Save</button></div></td></tr>)}
+        {!data?.payments?.length && <tr><td colSpan="6">No payments yet.</td></tr>}
       </tbody></table></div></section>
     </div>
     <section><h3>Enterprise customers</h3><div className="table-scroll"><table><thead><tr><th>Customer</th><th>Organization</th><th>Active plan</th><th>Subscription status</th><th>Registration</th></tr></thead><tbody>

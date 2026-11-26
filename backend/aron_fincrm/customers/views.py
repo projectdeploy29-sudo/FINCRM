@@ -1,13 +1,14 @@
+import uuid
 from django.utils import timezone
+from django.db import transaction
 from django.db.models import Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from customers.models import Customer, CustomerTag, CustomerAssignmentHistory
+from customers.models import Customer, CustomerTag, CustomerAssignmentHistory, CustomerStatusHistory
 from customers.serializers import CustomerSerializer, CustomerAssignmentHistorySerializer
-from applications.models import FinancialApplication
 from tasks.models import CostomerFollowUp
 from organizations.tenant import get_user_organization, get_user_role_context
 from permitions.permissions import IsAuthenticatedTenant, IsOrgAdmin
@@ -54,12 +55,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
             elif employee: qs=qs.filter(assigned_to=employee)
             else: qs=qs.none()
 
-        if self.request.query_params.get('without_application', '').lower() == 'true':
-            existing_customer_ids = FinancialApplication.objects.filter(
-                organization=org,
-            ).values_list('customer_id', flat=True)
-            qs = qs.exclude(pk__in=existing_customer_ids)
-
         # Filter by tag if requested
         tag = self.request.query_params.get('tag')
         if tag:
@@ -77,25 +72,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
         """
         GET /api/v1/customers/<id>/timeline/
         Assembles a comprehensive chronological feed of all customer activities:
-        - Financial applications (loans & insurances)
+        - Customer and lead follow-ups
         - Follow-up logs
         """
         customer = self.get_object()
         events = []
-
-        # Financial applications
-        applications = FinancialApplication.objects.filter(customer=customer).select_related('assigned_employee__user')
-        for app in applications:
-            events.append({
-                'type': 'application',
-                'id': str(app.id),
-                'application_code': app.application_code,
-                'status': app.status,
-                'requested_amount': str(app.requested_amount) if app.requested_amount else None,
-                'approved_amount': str(app.approved_amount) if app.approved_amount else None,
-                'occurred_at': app.created_at,
-                'performed_by': (app.assigned_employee.user.get_full_name() or app.assigned_employee.user.username) if app.assigned_employee else None,
-            })
 
         # Follow-ups
         followups = CostomerFollowUp.objects.filter(customer=customer).select_related('created_by__user')
@@ -122,6 +103,72 @@ class CustomerViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=True, methods=['post'])
+    def transition(self, request, pk=None):
+        customer = self.get_object()
+        new = request.data.get('status')
+        allowed = {Customer.Status.NEW: {Customer.Status.CONTACTED}, Customer.Status.CONTACTED: {Customer.Status.UNDER_REVIEW}}
+        note = str(request.data.get('notes', '') or '').strip()
+        tag = request.data.get('tag')
+        if new == Customer.Status.CONTACTED:
+            if not note:
+                return Response({'notes': 'Add a note describing the customer contact.'}, status=400)
+            if tag not in dict(CustomerTag.Tag.choices):
+                return Response({'tag': 'Choose the customer tag for this contact.'}, status=400)
+        with transaction.atomic():
+            customer = Customer.objects.select_for_update().get(pk=customer.pk, organization=customer.organization)
+            old = customer.status
+            if new not in allowed.get(old, set()):
+                return Response({'detail': f'Cannot move customer from {old} to {new}.'}, status=400)
+            if new == Customer.Status.CONTACTED:
+                existing_tags = set(customer.tags.values_list('tag', flat=True))
+                if existing_tags == {tag}:
+                    return Response({'tag': 'Choose a different tag to record the required tag change.'}, status=400)
+            customer.status = new
+            if note:
+                customer.notes = '\n'.join(filter(None, [customer.notes, note]))
+            customer.save(update_fields=['status', 'notes', 'updated_at'])
+            if tag:
+                customer.tags.all().delete()
+                CustomerTag.objects.create(customer=customer, tag=tag)
+            CustomerStatusHistory.objects.create(customer=customer, old_status=old, new_status=new, changed_by=request.user, notes=note)
+        return Response(CustomerSerializer(customer, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='convert-to-lead')
+    def convert_to_lead(self, request, pk=None):
+        from leads.models import Lead, LeadStatusHistory, LeadAssignmentHistory
+        from leads.serializers import LeadSerializer
+        customer = self.get_object()
+        with transaction.atomic():
+            customer = Customer.objects.select_for_update().get(pk=customer.pk, organization=customer.organization)
+            if customer.status != Customer.Status.UNDER_REVIEW:
+                return Response({'detail': 'Only customers under review can be converted to leads.'}, status=400)
+            if Lead.objects.filter(customer=customer).exists():
+                return Response({'detail': 'This customer already has a lead.'}, status=409)
+            from subscriptions.entitlements import enforce_resource_limit
+            enforce_resource_limit(customer.organization, 'leads', lock=True)
+            assigned = customer.assigned_to
+            if not assigned or assigned.employment_status != assigned.EmploymentStatus.ACTIVE:
+                return Response({'detail': 'Assign this customer to an active employee before conversion.'}, status=400)
+            lead_source = customer.source.lower().replace(' ', '_') if customer.source else Lead.Source.OTHER
+            if lead_source not in dict(Lead.Source.choices):
+                lead_source = Lead.Source.OTHER
+            lead = Lead.objects.create(
+                organization=customer.organization, lead_code=f'LEAD-{uuid.uuid4().hex[:8].upper()}',
+                contact_name=customer.full_name or customer.legal_name, phone=customer.primary_phone,
+                email=customer.email, city=customer.city, state=customer.state,
+                assigned_to=assigned, created_by=assigned, customer=customer,
+                source=lead_source,
+                expected_amount=customer.requested_amount, requested_amount=customer.requested_amount,
+                currency=customer.currency, status=Lead.Status.NEW,
+            )
+            customer.status = Customer.Status.CONVERTED
+            customer.save(update_fields=['status', 'updated_at'])
+            LeadStatusHistory.objects.create(lead=lead, old_status='', new_status=lead.status, changed_by=request.user, notes='Converted from customer')
+            LeadAssignmentHistory.objects.create(lead=lead, new_owner=assigned, assigned_by=request.user, reason='Assigned from customer conversion')
+            CustomerStatusHistory.objects.create(customer=customer, old_status=Customer.Status.UNDER_REVIEW, new_status=Customer.Status.CONVERTED, changed_by=request.user, notes='Converted to lead')
+        return Response({'detail': 'Customer converted to lead.', 'lead': LeadSerializer(lead, context={'request': request}).data}, status=201)
 
     @action(detail=True, methods=['post'])
     def tag(self, request, pk=None):
@@ -169,3 +216,9 @@ class CustomerViewSet(viewsets.ModelViewSet):
             'previous_owner__user', 'new_owner__user', 'changed_by'
         )
         return Response(CustomerAssignmentHistorySerializer(history, many=True).data)
+
+    @action(detail=True, methods=['get'], url_path='status-history')
+    def status_history(self, request, pk=None):
+        customer = self.get_object()
+        rows = CustomerStatusHistory.objects.filter(customer=customer).select_related('changed_by')
+        return Response([{'id': str(x.id), 'old_status': x.old_status, 'new_status': x.new_status, 'changed_by_name': x.changed_by.get_full_name() or x.changed_by.username, 'notes': x.notes, 'changed_at': x.changed_at} for x in rows])

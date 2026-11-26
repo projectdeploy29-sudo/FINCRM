@@ -10,6 +10,7 @@ from subscriptions.views import (
     EnterpriseInquiryView,
     EnterpriseCheckoutDetailsView,
     EnterpriseManagementView,
+    EnterprisePaymentInvoiceDetailsView,
     EnterprisePlanManagementView,
     EnterprisePlanCreateView,
     EnterprisePaymentInvitationView,
@@ -19,6 +20,7 @@ from subscriptions.views import (
     SubscriptionPlanManagementView,
     SubscriptionPlanDetailManagementView,
     SubscriptionCheckoutSettingsView,
+    PaymentDocumentDownloadView,
 )
 
 urlpatterns = [
@@ -34,6 +36,7 @@ urlpatterns = [
     path('registration-details/', RegistrationInvitationDetailsView.as_view(), name='subscription_registration_details'),
     path('enterprise/manage/', EnterpriseManagementView.as_view(), name='subscription_enterprise_manage'),
     path('enterprise/manage/<uuid:inquiry_id>/', EnterpriseManagementView.as_view(), name='subscription_enterprise_manage_detail'),
+    path('enterprise/manage/payments/<uuid:payment_id>/invoice-details/', EnterprisePaymentInvoiceDetailsView.as_view(), name='subscription_enterprise_payment_invoice_details'),
     path('enterprise/manage/<uuid:inquiry_id>/plan/', EnterprisePlanCreateView.as_view(), name='subscription_enterprise_plan_create'),
     path('enterprise/manage/plans/<uuid:plan_id>/', EnterprisePlanManagementView.as_view(), name='subscription_enterprise_plan_manage'),
     path('enterprise/manage/<uuid:inquiry_id>/payment-invitation/', EnterprisePaymentInvitationView.as_view(), name='subscription_enterprise_payment_invitation'),
@@ -43,4 +46,5 @@ urlpatterns = [
     path('subscribe/', SubscribeView.as_view(), name='subscription_subscribe'),
     path('cancel/', CancelSubscriptionView.as_view(), name='subscription_cancel'),
     path('payments/', PaymentHistoryView.as_view(), name='subscription_payments'),
+    path('payments/<uuid:payment_id>/<str:document_type>/', PaymentDocumentDownloadView.as_view(), name='subscription_payment_document'),
 ]

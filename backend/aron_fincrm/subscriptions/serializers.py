@@ -229,7 +229,59 @@ class EnterprisePlanUpdateSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({field: 'Razorpay recurring billing details are immutable. Create a new custom plan for a price or duration change.'})
         return attrs
 
+
+class InvoiceIssuerSettingsSerializer(serializers.Serializer):
+    invoice_issuer_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    invoice_issuer_address = serializers.CharField(max_length=4000, required=False, allow_blank=True)
+    invoice_issuer_gstin = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    invoice_sac_hsn_code = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    invoice_gst_rate_percent = serializers.DecimalField(
+        max_digits=5, decimal_places=2, min_value=Decimal('0'), max_value=Decimal('100'),
+        required=False, allow_null=True,
+    )
+
+
+class PaymentInvoiceDetailsSerializer(serializers.Serializer):
+    invoice_customer_gstin = serializers.CharField(max_length=20, required=True, allow_blank=True)
+
 class PaymentSerializer(serializers.ModelSerializer):
+    plan_name = serializers.SerializerMethodField()
+    billing_cycle = serializers.SerializerMethodField()
+    receipt_url = serializers.SerializerMethodField()
+    invoice_url = serializers.SerializerMethodField()
+    organization_name = serializers.SerializerMethodField()
+    purchaser_email = serializers.SerializerMethodField()
+
+    def get_plan_name(self, payment):
+        if payment.checkout_id:
+            return payment.checkout.plan.name
+        if payment.subscription_id:
+            return payment.subscription.plan.name
+        return 'Subscription payment'
+
+    def get_billing_cycle(self, payment):
+        if payment.checkout_id:
+            return payment.checkout.get_billing_cycle_display()
+        if payment.subscription_id:
+            return payment.subscription.get_billing_cycle_display()
+        return ''
+
+    def get_organization_name(self, payment):
+        if payment.subscription_id:
+            return payment.subscription.organization.name
+        if payment.checkout_id and payment.checkout.organization_id:
+            return payment.checkout.organization.name
+        return ''
+
+    def get_purchaser_email(self, payment):
+        return payment.checkout.purchaser_email if payment.checkout_id else ''
+
+    def get_receipt_url(self, payment):
+        return f'/subscriptions/payments/{payment.pk}/receipt/' if payment.status == Payment.Status.SUCCEEDED else ''
+
+    def get_invoice_url(self, payment):
+        return f'/subscriptions/payments/{payment.pk}/invoice/' if payment.status == Payment.Status.SUCCEEDED else ''
+
     class Meta:
         model = Payment
         fields = [
@@ -240,6 +292,13 @@ class PaymentSerializer(serializers.ModelSerializer):
             'provider',
             'provider_payment_id',
             'invoice_reference',
+            'invoice_customer_gstin',
+            'plan_name',
+            'billing_cycle',
+            'organization_name',
+            'purchaser_email',
+            'receipt_url',
+            'invoice_url',
             'status',
             'paid_at',
             'created_at',

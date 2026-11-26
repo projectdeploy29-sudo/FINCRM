@@ -7,14 +7,13 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import Manager, TeamLead
-from applications.models import FinancialApplication
 from customers.models import Customer
 from employes.models import Employee
 from finance.models import RepaymentPayment, RepaymentSchedule
 from leads.models import Lead
 from organizations.models import Department, Organization, Team
 from permitions.models import Role
-from tasks.models import CostomerFollowUp, LeadFollowUp, Task, applicationFollowUp
+from tasks.models import CostomerFollowUp, LeadFollowUp, Task
 
 
 PASSWORD = "FinCRM-Demo-2026!"
@@ -25,8 +24,7 @@ ORGANIZATIONS = (
 FIRST_NAMES = ["Aarav", "Ananya", "Ishaan", "Meera", "Kabir", "Diya", "Rohan", "Priya", "Arjun", "Kavya", "Neel", "Sana", "Vikram", "Aditi", "Dev"]
 LAST_NAMES = ["Sharma", "Patel", "Rao", "Iyer", "Singh", "Nair", "Kapoor", "Das", "Joshi", "Khan", "Kulkarni", "Mehta", "Reddy", "Shah", "Pillai"]
 STATES = ["Maharashtra", "Karnataka", "Gujarat", "Goa", "Tamil Nadu", "Telangana", "Kerala", "Rajasthan"]
-LEAD_STATUSES = [Lead.Status.NEW, Lead.Status.CONTACTED, Lead.Status.QUALIFIED, Lead.Status.UNQUALIFIED]
-APP_STATUSES = [FinancialApplication.Status.SUBMITTED, FinancialApplication.Status.UNDER_REVIEW, FinancialApplication.Status.APPROVED, FinancialApplication.Status.DISBURSED, FinancialApplication.Status.REJECTED]
+LEAD_STATUSES = [Lead.Status.NEW, Lead.Status.CONTACTED, Lead.Status.APPROVED, Lead.Status.DISBURSED, Lead.Status.COMPLETED]
 
 
 class Command(BaseCommand):
@@ -138,7 +136,7 @@ class Command(BaseCommand):
                 employees.append((employee, user, lead_user, department, team))
 
             customers = []
-            for index in range(15):
+            for index in range(45):
                 employee, _, _, _, _ = employees[index % len(employees)]
                 full_name = f"{FIRST_NAMES[(index + 3) % len(FIRST_NAMES)]} {LAST_NAMES[(index + 7) % len(LAST_NAMES)]}"
                 customer, _ = Customer.objects.update_or_create(
@@ -151,7 +149,9 @@ class Command(BaseCommand):
                         "preferred_channel": ["phone", "email", "whatsapp", "sms", "other"][index % 5],
                         "city": config["cities"][index % len(config["cities"])], "state": STATES[(index + (0 if prefix == 'north' else 2)) % len(STATES)],
                         "country": "India", "source": ["Referral", "Website", "Branch", "Campaign"][index % 4],
-                        "status": [Customer.Status.ACTIVE, Customer.Status.PROSPECT, Customer.Status.INACTIVE][index % 3],
+                        "status": Customer.Status.CONVERTED if index < 30 else [Customer.Status.NEW, Customer.Status.CONTACTED, Customer.Status.UNDER_REVIEW][index % 3],
+                        "requested_amount": Decimal(50000 + index * 15000 + (0 if prefix == "north" else 10000)) if index < 30 else None,
+                        "currency": "INR",
                         "created_by": employee, "assigned_to": employee, "notes": f"{config['name']} sample customer {index + 1}.",
                     },
                 )
@@ -166,34 +166,27 @@ class Command(BaseCommand):
                     defaults={
                         "contact_name": customer.full_name, "phone": customer.primary_phone, "email": customer.email,
                         "city": customer.city, "state": customer.state, "assigned_to": employee,
-                        "converted_customer": customer if index % 5 == 0 else None,
+                        "customer": customer,
                         "source": [Lead.Source.REFERRAL, Lead.Source.WEBSITE, Lead.Source.SOCIAL_MEDIA, Lead.Source.CAMPAIGN, Lead.Source.WALK_IN][index % 5],
                         "priority": [Lead.Priority.HIGH, Lead.Priority.MEDIUM, Lead.Priority.LOW][index % 3],
                         "status": LEAD_STATUSES[index % len(LEAD_STATUSES)],
-                        "expected_amount": Decimal(75000 + (index * 18750) + (0 if prefix == "north" else 12500)),
+                        "expected_amount": Decimal(50000 + index * 15000 + (0 if prefix == "north" else 10000)),
+                        "requested_amount": Decimal(50000 + index * 15000 + (0 if prefix == "north" else 10000)),
+                        "approved_amount": Decimal(50000 + index * 15000 + (0 if prefix == "north" else 10000)) if LEAD_STATUSES[index % len(LEAD_STATUSES)] in (Lead.Status.APPROVED, Lead.Status.DISBURSED, Lead.Status.COMPLETED) else None,
+                        "disbursed_amount": Decimal(50000 + index * 15000 + (0 if prefix == "north" else 10000)) if LEAD_STATUSES[index % len(LEAD_STATUSES)] in (Lead.Status.DISBURSED, Lead.Status.COMPLETED) else None,
+                        "upfront_deductions_amount": Decimal("0.00"),
+                        "net_disbursed_amount": Decimal(50000 + index * 15000 + (0 if prefix == "north" else 10000)) if LEAD_STATUSES[index % len(LEAD_STATUSES)] in (Lead.Status.DISBURSED, Lead.Status.COMPLETED) else None,
+                        "annual_interest_rate": Decimal("12.0000") if LEAD_STATUSES[index % len(LEAD_STATUSES)] in (Lead.Status.APPROVED, Lead.Status.DISBURSED, Lead.Status.COMPLETED) else None,
+                        "interest_calculation_method": "monthly_reducing",
+                        "loan_tenure_months": 3 if LEAD_STATUSES[index % len(LEAD_STATUSES)] in (Lead.Status.APPROVED, Lead.Status.DISBURSED, Lead.Status.COMPLETED) else None,
+                        "disbursed_at": now - timedelta(days=45) if LEAD_STATUSES[index % len(LEAD_STATUSES)] in (Lead.Status.DISBURSED, Lead.Status.COMPLETED) else None,
+                        "completed_at": now if LEAD_STATUSES[index % len(LEAD_STATUSES)] == Lead.Status.COMPLETED else None,
                         "currency": "INR", "created_by": employee,
                     },
                 )[0]
                 leads.append(lead)
 
-            applications = []
-            for index in range(15):
-                employee, user, _, _, _ = employees[index % len(employees)]
-                requested = Decimal(50000 + index * 15000 + (0 if prefix == "north" else 10000))
-                application, _ = FinancialApplication.objects.update_or_create(
-                    organization=org, application_code=f"{prefix.upper()}-APP-{index + 1:03d}",
-                    defaults={
-                        "customer": customers[index], "lead": leads[index], "assigned_employee": employee,
-                        "status": APP_STATUSES[index % len(APP_STATUSES)], "requested_amount": requested,
-                        "approved_amount": requested if index % 5 in (2, 3) else None,
-                        "disbursed_amount": requested if index % 5 == 3 else None,
-                        "currency": "INR", "submitted_at": now - timedelta(days=index * 3 + 1),
-                        "notes": f"{config['name']} application scenario {index + 1}.", "created_by": user,
-                    },
-                )
-                applications.append(application)
-
-            for index, customer in enumerate(customers):
+            for index, customer in enumerate(customers[:30]):
                 employee = employees[index % len(employees)][0]
                 scheduled = now + timedelta(days=(index % 7) - 3)
                 CostomerFollowUp.objects.update_or_create(
@@ -208,30 +201,23 @@ class Command(BaseCommand):
                     defaults={"created_by": employee, "scheduled_at": now + timedelta(days=(index % 9) - 4), "status": "COMPLETED" if index % 5 == 0 else "PENDING", "notes": f"Lead follow-up #{index + 1}: record contact outcome."},
                 )
 
-            for index, application in enumerate(applications):
-                employee = employees[index % len(employees)][0]
-                applicationFollowUp.objects.update_or_create(
-                    organization=org, application=application, followup_type=["CALL", "EMAIL", "MEETING"][index % 3],
-                    defaults={"created_by": employee, "scheduled_at": now + timedelta(days=(index % 8) - 3), "status": "COMPLETED" if index % 4 == 0 else "PENDING", "notes": f"Application follow-up #{index + 1}: check application status."},
-                )
-
-            for app_index, application in enumerate(applications):
-                if application.status not in (FinancialApplication.Status.APPROVED, FinancialApplication.Status.DISBURSED):
+            for app_index, lead in enumerate(leads):
+                if lead.status not in (Lead.Status.DISBURSED, Lead.Status.COMPLETED):
                     continue
                 employee = employees[app_index % len(employees)][0]
-                installment = (application.requested_amount or Decimal("0")) / Decimal("3")
+                installment = (lead.disbursed_amount or Decimal("0")) / Decimal("3")
                 for installment_number in range(1, 4):
                     due = today + timedelta(days=(-20, 0, 30)[installment_number - 1] + app_index % 4)
                     status = RepaymentSchedule.Status.PARTIAL if installment_number == 1 and app_index % 2 else RepaymentSchedule.Status.PENDING
                     if installment_number == 1 and app_index % 4 == 0:
                         status = RepaymentSchedule.Status.PAID
                     schedule, _ = RepaymentSchedule.objects.update_or_create(
-                        application=application, installment_number=installment_number,
+                        lead=lead, installment_number=installment_number,
                         defaults={
-                            "organization": org, "customer": application.customer, "lead": application.lead,
+                            "organization": org, "customer": lead.customer, "lead": lead,
                             "payment_type": RepaymentSchedule.PaymentType.EMI,
                             "expected_amount": installment.quantize(Decimal("0.01")), "due_date": due,
-                            "status": status, "notes": f"Demo installment {installment_number} for {application.application_code}.",
+                            "status": status, "notes": f"Demo installment {installment_number} for {lead.lead_code}.",
                         },
                     )
                     if installment_number == 1 and app_index % 3 != 1:
@@ -244,7 +230,7 @@ class Command(BaseCommand):
                                 "payment_recipient": RepaymentPayment.PaymentRecipient.ORGANIZATION,
                                 "verification_status": RepaymentPayment.VerificationStatus.VERIFIED,
                                 "recorded_by": employee, "verified_by": employee,
-                                "notes": f"Seeded payment for {application.application_code}.",
+                                "notes": f"Seeded payment for {lead.lead_code}.",
                             },
                         )
                     elif installment_number == 2 and app_index % 3 == 1:
@@ -292,14 +278,13 @@ class Command(BaseCommand):
                             "assigned_by_user": lead_user, "assigned_to_user": employee.user, "assigned_by_teamlead": team_leads[index // 2][0],
                             "assigned_to": employee, "department": department, "team": team,
                             "related_customer": customer, "related_lead": lead,
-                            "related_application": applications[index % len(applications)],
                             "priority": [Task.Priority.LOW, Task.Priority.MEDIUM, Task.Priority.HIGH, Task.Priority.URGENT][(index + task_index) % 4],
                             "status": [Task.Status.PENDING, Task.Status.IN_PROGRESS, Task.Status.COMPLETED][(index + task_index) % 3],
                             "start_date": now - timedelta(days=task_index + 1), "due_date": now + timedelta(days=(index + task_index) % 5 - 2),
                         },
                     )
 
-            summaries.append(f"{org.name}: 1 admin, 3 managers, 5 team leads, 10 employees, 15 customers, 30 leads, 15 applications, 50 follow-ups, and repayment/task data.")
+            summaries.append(f"{org.name}: 1 admin, 3 managers, 5 team leads, 10 employees, 45 customers, 30 leads, 50 follow-ups, and repayment/task data.")
 
         self.stdout.write(self.style.SUCCESS("Multi-organization demo data is ready (safe to rerun)."))
         for summary in summaries:

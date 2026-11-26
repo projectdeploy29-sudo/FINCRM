@@ -30,15 +30,9 @@ class RepaymentSchedule(models.Model):
         related_name="repayment_schedules"
     )
 
-    application = models.ForeignKey(
-        "applications.FinancialApplication",
-        on_delete=models.PROTECT,
-        related_name="repayment_schedules"
-    )
-
     lead = models.ForeignKey(
         "leads.Lead",
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="repayment_schedules"
@@ -76,7 +70,7 @@ class RepaymentSchedule(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints=[models.UniqueConstraint(fields=['application','installment_number'],name='uniq_app_installment')]
+        constraints=[models.UniqueConstraint(fields=['lead','installment_number'],name='uniq_lead_installment')]
 
     @property
     def received_amount(self):

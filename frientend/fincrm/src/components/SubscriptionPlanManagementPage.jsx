@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import LoadingSkeleton from './LoadingSkeleton'
 import './SubscriptionPlanManagementPage.css'
 
 const emptyPlan = {
@@ -20,6 +21,13 @@ function planToForm(plan) {
 }
 
 function optionalNumber(value) { return value === '' ? null : Number(value) }
+async function fetchPlanAdminData(api) {
+  const [planRows, checkoutState] = await Promise.all([
+    api.get('/subscriptions/manage/plans/'),
+    api.get('/subscriptions/manage/checkout-settings/'),
+  ])
+  return { plans: Array.isArray(planRows) ? planRows : planRows.results || [], checkout: checkoutState }
+}
 
 export default function SubscriptionPlanManagementPage({ api }) {
   const [plans, setPlans] = useState([])
@@ -34,17 +42,20 @@ export default function SubscriptionPlanManagementPage({ api }) {
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      const [planRows, checkoutState] = await Promise.all([
-        api.get('/subscriptions/manage/plans/'),
-        api.get('/subscriptions/manage/checkout-settings/'),
-      ])
-      setPlans(Array.isArray(planRows) ? planRows : planRows.results || [])
-      setCheckout(checkoutState)
+      const result = await fetchPlanAdminData(api)
+      setPlans(result.plans)
+      setCheckout(result.checkout)
     } catch (exception) { setError(exception.message) }
     finally { setLoading(false) }
   }, [api])
 
-  useEffect(() => { reload() }, [reload])
+  useEffect(() => {
+    let active = true
+    fetchPlanAdminData(api).then((result) => {
+      if (active) { setPlans(result.plans); setCheckout(result.checkout) }
+    }).catch((exception) => { if (active) setError(exception.message) }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [api])
 
   function startCreate() { setEditing(null); setForm(emptyPlan); setError(''); setMessage('') }
   function startEdit(plan) { setEditing(plan); setForm(planToForm(plan)); setError(''); setMessage('') }
@@ -100,7 +111,7 @@ export default function SubscriptionPlanManagementPage({ api }) {
     </section>
 
     <section className="plan-admin-section"><div className="plan-admin-section-title"><div><h3>Public plans</h3><p>Changes are reflected on the customer pricing page.</p></div></div>
-      {loading ? <p>Loading plans…</p> : plans.length === 0 ? <p>No plans found.</p> : <div className="plan-admin-list">{plans.map((plan) => <article className="plan-admin-card" key={plan.id}>
+      {loading ? <LoadingSkeleton variant="cards" metricCount={3} panelCount={0} label="Loading plans" /> : plans.length === 0 ? <p className="empty-state">No plans found.</p> : <div className="plan-admin-list">{plans.map((plan) => <article className="plan-admin-card" key={plan.id}>
         <div className="plan-admin-card-main"><div><h4>{plan.name} <span className={`plan-state ${plan.is_active ? 'active' : ''}`}>{plan.is_active ? 'Active' : 'Inactive'}</span></h4><p>{plan.description || plan.code}</p></div><div className="plan-price-pair"><span>Monthly<strong>{plan.monthly_price ? `₹${Number(plan.monthly_price).toLocaleString('en-IN')}` : '—'}</strong></span><span>Yearly<strong>{plan.yearly_price ? `₹${Number(plan.yearly_price).toLocaleString('en-IN')}` : '—'}</strong></span></div></div>
         <div className="plan-admin-meta"><span>Code: <b>{plan.code}</b></span><span>Price confirmation: <b>{plan.prices_confirmed ? 'Confirmed' : 'Not confirmed'}</b></span><span>Employees: <b>{plan.max_employees ?? 'Custom'}</b></span><span>Leads: <b>{plan.max_leads ?? 'Custom'}</b></span></div>
         <div className="plan-admin-actions"><button type="button" onClick={() => startEdit(plan)}>Edit plan</button><button type="button" onClick={() => setPlanActive(plan, !plan.is_active)}>{plan.is_active ? 'Deactivate' : 'Activate'}</button></div>

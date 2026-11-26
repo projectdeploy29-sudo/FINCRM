@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { API_ROOT, readApiResponse } from '../api'
+import LoadingSkeleton from './LoadingSkeleton'
 import './PlanCatalog.css'
 
 const emptyInquiry = { full_name: '', email: '', phone: '', organization_name: '', website: '', linkedin_url: '', note: '' }
@@ -112,7 +113,7 @@ export default function PlanCatalog({ api, user }) {
         key: order.key_id,
         amount: order.amount,
         currency: order.currency,
-        name: 'FINCRM',
+        name: 'Auron FIN CRM',
         description: `${order.plan_name} · ${cycle === 'YEARLY' ? 'yearly' : 'monthly'} plan`,
         order_id: order.order_id,
         prefill: { email: order.email },
@@ -171,12 +172,12 @@ export default function PlanCatalog({ api, user }) {
 
   const priceForCycle = (plan) => cycle === 'YEARLY' ? plan.yearly_price : plan.monthly_price
   return <section className="public-plans plan-catalog">
-    <p className="plans-intro">Choose a plan that fits your organization. Your selected price and limits are loaded from the plan catalog.</p>
+    <header className="plan-page-heading"><span>PLANS FOR YOUR ORGANIZATION</span><h1>Choose a plan built for your team</h1><p>Compare capacity, features, and billing. Your plan details are loaded from the live catalog.</p></header>
     <div className="plan-cycle-picker" role="group" aria-label="Billing cycle">
       <button type="button" className={cycle === 'MONTHLY' ? 'active' : ''} onClick={() => setCycle('MONTHLY')}>Monthly</button>
       <button type="button" className={cycle === 'YEARLY' ? 'active' : ''} onClick={() => setCycle('YEARLY')}>Yearly</button>
     </div>
-    {loading && <p className="muted">Loading plans…</p>}
+    {loading && <LoadingSkeleton variant="cards" metricCount={4} panelCount={0} label="Loading subscription plans" />}
     {error && <p className="plans-error" role="alert">{error}</p>}
     {failedPayment && <button type="button" className="payment-retry" disabled={busy} onClick={() => verifyPayment(failedPayment)}>{busy ? 'Checking payment…' : 'Retry payment confirmation'}</button>}
     {message && <p className="plans-success" role="status">{message}</p>}
@@ -185,8 +186,8 @@ export default function PlanCatalog({ api, user }) {
       const custom = plan.code === 'enterprise'
       const price = priceForCycle(plan)
       const features = Object.entries(plan.features || {}).filter(([, enabled]) => enabled).map(([name]) => name.replaceAll('_', ' '))
-      return <article className={`plan-card ${plan.code === 'starter' ? 'popular' : ''}`} key={plan.id}>
-        <div className="plan-title"><h2>{plan.name}</h2>{plan.code === 'starter' && <span>POPULAR</span>}</div>
+      return <article className={`plan-card ${plan.code === 'professional' ? 'popular' : ''}`} key={plan.id}>
+        <div className="plan-title"><h2>{plan.name}</h2>{plan.code === 'professional' && <span>POPULAR</span>}</div>
         <p className="plan-description">{plan.description}</p>
         <div className="plan-price">{custom ? 'Custom pricing' : plan.checkout_enabled ? money(price) : 'Pricing pending confirmation'}{!custom && plan.checkout_enabled && price != null && <small> / {cycle === 'YEARLY' ? 'year' : 'month'}</small>}</div>
         <ul>

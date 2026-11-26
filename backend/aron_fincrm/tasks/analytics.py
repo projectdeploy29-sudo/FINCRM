@@ -8,13 +8,12 @@ from calendar import monthrange
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from applications.models import FinancialApplication
 from customers.models import Customer
 from finance.models import RepaymentPayment, RepaymentSchedule
 from leads.models import Lead
 from organizations.tenant import get_user_organization, get_user_role_context
 from permitions.permissions import IsAuthenticatedTenant
-from tasks.models import ApplicationFollowUp, CustomerFollowUp, LeadFollowUp, Task
+from tasks.models import CustomerFollowUp, LeadFollowUp, Task
 from organizations.date_filters import apply_date_range
 from organizations.dates import organization_local_date
 
@@ -25,19 +24,17 @@ def scoped_work(request):
     level = ctx['hierarchy_level']
     leads = Lead.objects.filter(organization=org)
     customers = Customer.objects.filter(organization=org)
-    applications = FinancialApplication.objects.filter(organization=org)
     tasks = Task.objects.filter(organization=org)
     if not org or level < 30:
-        return org, leads.none(), customers.none(), applications.none(), tasks.none()
+        return org, leads.none(), customers.none(), tasks.none()
     if level >= 90:
-        return org, leads, customers, applications, tasks
+        return org, leads, customers, tasks
     if level >= 70:
         manager = request.user.manager_set.first()
         departments = manager.managed_departments.all() if manager else []
         return (org,
                 leads.filter(Q(assigned_to__department__in=departments) | Q(created_by__department__in=departments)).distinct(),
                 customers.filter(assigned_to__department__in=departments),
-                applications.filter(assigned_employee__department__in=departments),
                 tasks.filter(Q(assigned_to__department__in=departments) | Q(department__in=departments) | Q(assigned_to_user=request.user)).distinct())
     if level >= 50:
         profile = request.user.teamlead_profiles.first()
@@ -45,13 +42,11 @@ def scoped_work(request):
         return (org,
                 leads.filter(Q(assigned_to__team__in=teams) | Q(created_by__team__in=teams)).distinct(),
                 customers.filter(assigned_to__team__in=teams),
-                applications.filter(assigned_employee__team__in=teams),
                 tasks.filter(Q(assigned_to__team__in=teams) | Q(team__in=teams) | Q(assigned_to_user=request.user)).distinct())
     employee = getattr(request.user, 'employee', None)
     return (org,
             leads.filter(assigned_to=employee),
             customers.filter(assigned_to=employee),
-            applications.filter(assigned_employee=employee),
             tasks.filter(assigned_to=employee))
 
 
@@ -60,7 +55,7 @@ def scoped_work(request):
 def pipeline(request):
     if get_user_role_context(request.user, request)['hierarchy_level'] < 30:
         return Response({'detail': 'A staff account is required to view the sales pipeline.'}, status=403)
-    org, leads, _, applications, _ = scoped_work(request)
+    org, leads, _, _ = scoped_work(request)
     if not org:
         return Response({'detail': 'Organization not found.'}, status=400)
     scoped_leads = leads
@@ -116,11 +111,6 @@ def pipeline(request):
     paid_lead_ids = set(payments.filter(
         verification_status='VERIFIED',
     ).values_list('repayment_schedule__lead_id', flat=True).distinct())
-    application_counts = dict(
-        applications.filter(lead__in=scoped_leads)
-        .values_list('lead_id')
-        .annotate(count=Count('id'))
-    )
     rows = []
     for lead in leads.select_related('assigned_to__user').order_by('-created_at'):
         payment_status = 'overdue' if lead.pk in overdue_lead_ids else 'paid' if lead.pk in paid_lead_ids else 'not_paid'
@@ -129,7 +119,6 @@ def pipeline(request):
             'status': lead.status, 'expected_amount': lead.expected_amount, 'currency': lead.currency,
             'assigned_to': lead.assigned_to.user.get_full_name() or lead.assigned_to.user.username if lead.assigned_to_id else '',
             'payment_status': payment_status, 'due_this_month': lead.pk in due_lead_ids,
-            'application_count': application_counts.get(lead.pk, 0),
         })
     return Response({
         'total_leads': len(rows),
@@ -148,17 +137,15 @@ def pipeline(request):
 def report_summary(request):
     if get_user_role_context(request.user, request)['hierarchy_level'] < 30:
         return Response({'detail': 'A staff account is required to view reports.'}, status=403)
-    org, leads, customers, applications, tasks = scoped_work(request)
+    org, leads, customers, tasks = scoped_work(request)
     if not org:
         return Response({'detail': 'Organization not found.'}, status=400)
-    scoped_leads, scoped_customers, scoped_applications = leads, customers, applications
+    scoped_leads, scoped_customers = leads, customers
     leads = apply_date_range(leads, request, 'created_at')
     customers = apply_date_range(customers, request, 'created_at')
-    applications = apply_date_range(applications, request, 'created_at')
     tasks = apply_date_range(tasks, request, 'created_at')
     followups = apply_date_range(CustomerFollowUp.objects.filter(organization=org, customer__in=scoped_customers), request, 'scheduled_at').count()
     followups += apply_date_range(LeadFollowUp.objects.filter(organization=org, lead__in=scoped_leads), request, 'scheduled_at').count()
-    followups += apply_date_range(ApplicationFollowUp.objects.filter(organization=org, application__in=scoped_applications), request, 'scheduled_at').count()
     all_verified = RepaymentPayment.objects.filter(
         organization=org,
         repayment_schedule__lead__in=scoped_leads,
@@ -169,14 +156,17 @@ def report_summary(request):
     month_start = today.replace(day=1)
     month_end = today.replace(day=monthrange(today.year, today.month)[1])
     monthly_verified = all_verified.filter(payment_date__gte=month_start, payment_date__lte=month_end)
-    qualified_leads = leads.filter(status=Lead.Status.QUALIFIED)
+    completed_leads = leads.filter(status=Lead.Status.COMPLETED)
+    leads_status_counts = list(leads.values('status').annotate(count=Count('id')).order_by('status'))
+    customers_status_counts = list(customers.values('status').annotate(count=Count('id')).order_by('status'))
     return Response({
-        'leads_by_status': list(leads.values('status').annotate(count=Count('id')).order_by('status')),
-        'applications_by_status': list(applications.values('status').annotate(count=Count('id')).order_by('status')),
+        'leads_by_status': leads_status_counts,
+        'customers_by_status': customers_status_counts,
         'tasks_by_status': list(tasks.values('status').annotate(count=Count('id')).order_by('status')),
-        'active_leads': leads.exclude(status__in=['unqualified']).count(),
-        'won': qualified_leads.count(),
+        'active_leads': leads.exclude(status='completed').count(),
+        'won': completed_leads.count(),
         'customers': customers.count(),
+        'customers_under_review': customers.filter(status=Customer.Status.UNDER_REVIEW).count(),
         'followups': followups,
         'tasks_overdue': tasks.filter(due_date__lt=timezone.now()).exclude(status__in=['COMPLETED', 'CANCELLED']).count(),
         'revenue_this_month': monthly_verified.aggregate(total=Sum('amount'))['total'] or 0,

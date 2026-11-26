@@ -34,8 +34,7 @@ class CustomerAssignmentHistorySerializer(serializers.ModelSerializer):
 class CustomerSerializer(serializers.ModelSerializer):
     status = serializers.ChoiceField(
         choices=Customer.Status.choices,
-        required=False,
-        default=Customer.Status.PROSPECT,
+        read_only=True,
     )
     customer_code = serializers.CharField(max_length=50, required=False, allow_blank=True)
     tags = serializers.SerializerMethodField(read_only=True)
@@ -71,6 +70,8 @@ class CustomerSerializer(serializers.ModelSerializer):
             'source',
             'status',
             'priority',
+            'requested_amount',
+            'currency',
             'notes',
             'tags',
             'tag_list',
@@ -83,7 +84,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             'updated_at',
             'archived_at',
         ]
-        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at', 'archived_at']
+        read_only_fields = ['id', 'created_by', 'status', 'created_at', 'updated_at', 'archived_at']
 
     def get_tags(self, obj):
         return list(obj.tags.values_list('tag', flat=True))

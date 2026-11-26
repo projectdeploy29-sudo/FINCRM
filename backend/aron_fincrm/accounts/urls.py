@@ -5,6 +5,8 @@ from accounts.views import (
     LogoutView,
     UserMeView,
     ChangePasswordView,
+    ForgotPasswordView,
+    ResetPasswordView,
 )
 
 urlpatterns = [
@@ -13,4 +15,6 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='auth_token_refresh'),
     path('me/', UserMeView.as_view(), name='auth_me'),
     path('change-password/', ChangePasswordView.as_view(), name='auth_change_password'),
+    path('forgot-password/', ForgotPasswordView.as_view(), name='auth_forgot_password'),
+    path('reset-password/', ResetPasswordView.as_view(), name='auth_reset_password'),
 ]

@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
 import './OrganizationHierarchyView.css'
 
+const emptyList = []
+
 function initials(name) {
   if (!name) return '?'
   const parts = name.trim().split(/\s+/)
@@ -13,9 +15,9 @@ export default function OrganizationHierarchyView({ data }) {
   const [search, setSearch] = useState('')
 
   const org = data?.organization || {}
-  const departments = data?.departments || []
-  const unassignedTeams = data?.unassigned_teams || []
-  const unassignedEmployees = data?.unassigned_employees || []
+  const departments = data?.departments || emptyList
+  const unassignedTeams = data?.unassigned_teams || emptyList
+  const unassignedEmployees = data?.unassigned_employees || emptyList
 
   const stats = useMemo(() => [
     { label: 'Departments', value: data?.total_departments ?? departments.length },
@@ -73,7 +75,8 @@ export default function OrganizationHierarchyView({ data }) {
       const matchingDirect = (dept.unassigned_team_employees || []).filter((emp) => (
         emp.name.toLowerCase().includes(query) ||
         (emp.code && emp.code.toLowerCase().includes(query)) ||
-        (emp.designation && emp.designation.toLowerCase().includes(query))
+        (emp.designation && emp.designation.toLowerCase().includes(query)) ||
+        (emp.email && emp.email.toLowerCase().includes(query))
       ))
 
       if (matchDept || matchManager || matchingTeams.length > 0 || matchingDirect.length > 0) {
@@ -87,11 +90,44 @@ export default function OrganizationHierarchyView({ data }) {
     }).filter(Boolean)
   }, [departments, query])
 
+  const filteredUnassignedTeams = useMemo(() => {
+    if (!query) return unassignedTeams
+    return unassignedTeams.map((team) => {
+      const matchesTeam = [team.name, team.description, team.team_lead?.name, team.team_lead?.code, team.team_lead?.email]
+        .some((value) => value?.toLowerCase().includes(query))
+      const matchingEmployees = (team.employees || []).filter((emp) => (
+        [emp.name, emp.code, emp.designation, emp.email, emp.phone, emp.role?.name]
+          .some((value) => value?.toLowerCase().includes(query))
+      ))
+      if (matchesTeam) return team
+      return matchingEmployees.length ? { ...team, employees: matchingEmployees } : null
+    }).filter(Boolean)
+  }, [unassignedTeams, query])
+
+  const filteredUnassignedEmployees = useMemo(() => {
+    if (!query) return unassignedEmployees
+    return unassignedEmployees.filter((emp) => (
+      [emp.name, emp.code, emp.designation, emp.email, emp.phone, emp.role?.name]
+        .some((value) => value?.toLowerCase().includes(query))
+    ))
+  }, [unassignedEmployees, query])
+
+  const hasVisibleHierarchy = filteredDepartments.length > 0 || filteredUnassignedTeams.length > 0 || filteredUnassignedEmployees.length > 0
+
   if (!data) return <p className="hierarchy-empty-note">No hierarchy information available.</p>
 
   return (
     <div className="hierarchy-container">
-      {/* Summary Metrics */}
+      <header className="hierarchy-overview">
+        <div className="hierarchy-overview-mark" aria-hidden="true">{initials(org.name || 'Organization')}</div>
+        <div className="hierarchy-overview-copy">
+          <span className="hierarchy-eyebrow">Organization structure</span>
+          <h3>{org.name || 'Organization'}</h3>
+          <p>Departments, reporting lines, teams, and staff in one view.</p>
+        </div>
+        {org.currency && <span className="hierarchy-currency">Currency · {org.currency}</span>}
+      </header>
+
       <div className="hierarchy-summary-bar">
         {stats.map((stat) => (
           <div key={stat.label} className="hierarchy-stat-card">
@@ -101,26 +137,28 @@ export default function OrganizationHierarchyView({ data }) {
         ))}
       </div>
 
-      {/* Search & Collapse Controls */}
       <div className="hierarchy-controls">
-        <div className="hierarchy-search-box">
+        <label className="hierarchy-search-box">
+          <span>Search organization</span>
           <input
+            aria-label="Search organization structure"
             type="search"
             placeholder="Search departments, managers, team leads, or employees…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-        </div>
-        <button type="button" className="hierarchy-toggle-btn" onClick={toggleAll}>
-          {departments.every((d) => collapsedDepts[d.id]) ? 'Expand all departments' : 'Collapse all departments'}
-        </button>
+        </label>
+        {departments.length > 0 && <button type="button" className="hierarchy-toggle-btn" onClick={toggleAll}>
+          <span aria-hidden="true">{departments.every((d) => collapsedDepts[d.id]) ? '+' : '−'}</span>
+          {departments.every((d) => collapsedDepts[d.id]) ? 'Expand all' : 'Collapse all'}
+        </button>}
       </div>
 
       {/* Departments Tree */}
       <div className="hierarchy-tree">
-        {filteredDepartments.length === 0 ? (
+        {!hasVisibleHierarchy ? (
           <p className="hierarchy-empty-note">
-            {departments.length === 0 ? 'No departments defined in this organization yet.' : 'No matching departments or staff found.'}
+            {query ? 'No matching departments, teams, or staff found.' : 'No departments or staff defined in this organization yet.'}
           </p>
         ) : (
           filteredDepartments.map((dept) => {
@@ -131,21 +169,35 @@ export default function OrganizationHierarchyView({ data }) {
 
             return (
               <section key={dept.id} className="hierarchy-dept-card">
-                <header className="hierarchy-dept-header" onClick={() => toggleDept(dept.id)}>
-                  <div className="hierarchy-dept-title">
-                    <span>{isCollapsed ? '▶' : '▼'}</span>
-                    <div>
-                      <h3>{dept.name}</h3>
-                      {dept.description && <p className="hierarchy-dept-desc">{dept.description}</p>}
+                <header className="hierarchy-dept-header">
+                  <div className="hierarchy-dept-heading">
+                    <button
+                      type="button"
+                      className="hierarchy-collapse-button"
+                      aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dept.name}`}
+                      aria-expanded={!isCollapsed}
+                      aria-controls={!isCollapsed ? `hierarchy-department-${dept.id}` : undefined}
+                      onClick={() => toggleDept(dept.id)}
+                    >
+                      <span className={`hierarchy-chevron ${isCollapsed ? 'is-collapsed' : ''}`} aria-hidden="true">⌄</span>
+                    </button>
+                    <div className="hierarchy-dept-title">
+                      <div>
+                        <h3>{dept.name}</h3>
+                        {dept.description && <p className="hierarchy-dept-desc">{dept.description}</p>}
+                      </div>
                     </div>
                   </div>
-                  <span className={`hierarchy-badge ${dept.is_active ? 'active' : 'inactive'}`}>
-                    {dept.is_active ? 'Active' : 'Inactive'}
-                  </span>
+                  <div className="hierarchy-dept-meta">
+                    <span className="hierarchy-team-count">{teams.length} {teams.length === 1 ? 'team' : 'teams'}</span>
+                    <span className={`hierarchy-badge ${dept.is_active ? 'active' : 'inactive'}`}>
+                      {dept.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
                 </header>
 
                 {!isCollapsed && (
-                  <div className="hierarchy-dept-body">
+                  <div className="hierarchy-dept-body" id={`hierarchy-department-${dept.id}`}>
                     {/* Department Manager */}
                     <div className="hierarchy-manager-section">
                       <span className="hierarchy-section-title">Department Manager</span>
@@ -227,6 +279,7 @@ export default function OrganizationHierarchyView({ data }) {
                                       {employees.map((emp) => (
                                         <div key={emp.id} className="hierarchy-employee-pill">
                                           <div className="emp-top">
+                                            <span className="hierarchy-avatar emp-avatar" aria-hidden="true">{initials(emp.name)}</span>
                                             <span className="emp-name">{emp.name}</span>
                                             {emp.employment_status && (
                                               <span className={`hierarchy-badge ${emp.employment_status === 'active' ? 'active' : 'inactive'}`}>
@@ -259,6 +312,7 @@ export default function OrganizationHierarchyView({ data }) {
                           {directStaff.map((emp) => (
                             <div key={emp.id} className="hierarchy-employee-pill">
                               <div className="emp-top">
+                                <span className="hierarchy-avatar emp-avatar" aria-hidden="true">{initials(emp.name)}</span>
                                 <span className="emp-name">{emp.name}</span>
                                 {emp.employment_status && (
                                   <span className={`hierarchy-badge ${emp.employment_status === 'active' ? 'active' : 'inactive'}`}>
@@ -284,17 +338,17 @@ export default function OrganizationHierarchyView({ data }) {
         )}
 
         {/* Unassigned Teams (outside of departments) */}
-        {unassignedTeams.length > 0 && (
+        {filteredUnassignedTeams.length > 0 && (
           <section className="hierarchy-dept-card">
             <header className="hierarchy-dept-header">
               <div className="hierarchy-dept-title">
-                <h3>Unassigned Teams ({unassignedTeams.length})</h3>
+                <h3>Unassigned Teams ({filteredUnassignedTeams.length})</h3>
                 <p className="hierarchy-dept-desc">Teams not currently mapped to a department</p>
               </div>
             </header>
             <div className="hierarchy-dept-body">
-              <div className="hierarchy-teams-container" style={{ borderLeft: 'none', paddingLeft: 0 }}>
-                {unassignedTeams.map((team) => (
+              <div className="hierarchy-teams-container hierarchy-unassigned-teams">
+                {filteredUnassignedTeams.map((team) => (
                   <article key={team.id} className="hierarchy-team-card">
                     <header className="hierarchy-team-header">
                       <h4>{team.name}</h4>
@@ -302,8 +356,12 @@ export default function OrganizationHierarchyView({ data }) {
                     <div className="hierarchy-employees-grid">
                       {(team.employees || []).map((emp) => (
                         <div key={emp.id} className="hierarchy-employee-pill">
-                          <span className="emp-name">{emp.name}</span>
+                          <div className="emp-top">
+                            <span className="hierarchy-avatar emp-avatar" aria-hidden="true">{initials(emp.name)}</span>
+                            <span className="emp-name">{emp.name}</span>
+                          </div>
                           <span className="emp-designation">{emp.designation || 'Employee'}</span>
+                          <div className="emp-meta"><span>{emp.code || '—'}</span>{emp.email && <a href={`mailto:${emp.email}`}>{emp.email}</a>}</div>
                         </div>
                       ))}
                     </div>
@@ -315,20 +373,25 @@ export default function OrganizationHierarchyView({ data }) {
         )}
 
         {/* Unassigned Staff */}
-        {unassignedEmployees.length > 0 && (
+        {filteredUnassignedEmployees.length > 0 && (
           <section className="hierarchy-dept-card">
             <header className="hierarchy-dept-header">
               <div className="hierarchy-dept-title">
-                <h3>Unassigned Employees ({unassignedEmployees.length})</h3>
+                <h3>Unassigned Employees ({filteredUnassignedEmployees.length})</h3>
                 <p className="hierarchy-dept-desc">Staff without a department or team assignment</p>
               </div>
             </header>
             <div className="hierarchy-dept-body">
               <div className="hierarchy-employees-grid">
-                {unassignedEmployees.map((emp) => (
+                {filteredUnassignedEmployees.map((emp) => (
                   <div key={emp.id} className="hierarchy-employee-pill">
-                    <span className="emp-name">{emp.name}</span>
+                    <div className="emp-top">
+                      <span className="hierarchy-avatar emp-avatar" aria-hidden="true">{initials(emp.name)}</span>
+                      <span className="emp-name">{emp.name}</span>
+                      {emp.employment_status && <span className={`hierarchy-badge ${emp.employment_status === 'active' ? 'active' : 'inactive'}`}>{emp.employment_status.replace('_', ' ')}</span>}
+                    </div>
                     <span className="emp-designation">{emp.designation || 'Employee'}</span>
+                    <div className="emp-meta"><span>{emp.code || '—'}</span>{emp.email && <a href={`mailto:${emp.email}`}>{emp.email}</a>}</div>
                   </div>
                 ))}
               </div>

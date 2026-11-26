@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import CountUp from './CountUp'
+import LoadingSkeleton from './LoadingSkeleton'
 
 const money = (value, currency = 'INR') => value == null ? '—' : new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(value))
 const dateTime = (value) => value ? new Date(value).toLocaleString() : '—'
@@ -7,24 +9,31 @@ export default function LeadPortalDashboard({ api }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  async function load() {
-    setLoading(true); setError('')
-    try { setData(await api.get('/leads/portal-dashboard/')) } catch (exception) { setError(exception.message) } finally { setLoading(false) }
-  }
-  useEffect(() => { load() }, [])
+  const [requestKey, setRequestKey] = useState(0)
+  useEffect(() => {
+    let active = true
+    api.get('/leads/portal-dashboard/').then((result) => { if (active) setData(result) }).catch((exception) => { if (active) setError(exception.message) }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [api, requestKey])
   const currency = data?.lead?.currency || 'INR'
   return <section className="page">
-    <h2>My loan dashboard</h2>
-    <p>{data?.lead?.contact_name || 'Your loan and follow-up information.'}</p>
-    {loading && <p>Loading your account…</p>}
-    {error && <p role="alert">{error}</p>}
+    <div className="dashboard-hero lead-portal-hero">
+      <div>
+        <p className="dashboard-eyebrow">BORROWER PORTAL</p>
+        <h2>My loan dashboard</h2>
+        <p>{data?.lead?.contact_name || 'Your loan and follow-up information.'}</p>
+      </div>
+      {data?.loan?.next_payment_due_date && <button type="button" className="primary-action" onClick={() => document.querySelector('.lead-portal-payments')?.scrollIntoView({ behavior: 'smooth' })}>Next payment <span>→</span></button>}
+    </div>
+    {loading && !data && <LoadingSkeleton label="Loading your account" />}
+    {error && <p role="alert">{error} <button type="button" onClick={() => { setError(''); setLoading(true); setRequestKey((current) => current + 1) }}>Try again</button></p>}
     {data && <>
       <div className="metric-grid">
-        <article><span>Approved loan</span><strong>{money(data.loan.approved_amount, currency)}</strong></article>
-        <article><span>Loan principal</span><strong>{money(data.loan.disbursed_amount, currency)}</strong></article>
-        <article><span>Cash paid to you</span><strong>{money(data.loan.net_disbursed_amount, currency)}</strong></article>
-        <article><span>Upfront deductions</span><strong>{money(data.loan.upfront_deductions_amount, currency)}</strong></article>
-        <article><span>Monthly repayment</span><strong>{money(data.loan.monthly_repayment_amount, currency)}</strong></article>
+        <article><span>Approved loan</span><strong><CountUp value={money(data.loan.approved_amount, currency)} /></strong></article>
+        <article><span>Loan principal</span><strong><CountUp value={money(data.loan.disbursed_amount, currency)} /></strong></article>
+        <article><span>Cash paid to you</span><strong><CountUp value={money(data.loan.net_disbursed_amount, currency)} /></strong></article>
+        <article><span>Upfront deductions</span><strong><CountUp value={money(data.loan.upfront_deductions_amount, currency)} /></strong></article>
+        <article><span>Monthly repayment</span><strong><CountUp value={money(data.loan.monthly_repayment_amount, currency)} /></strong></article>
         <article><span>Rate / method / tenure</span><strong>{data.loan.annual_interest_rate == null ? '—' : `${data.loan.annual_interest_rate}% · ${data.loan.interest_calculation_method?.replaceAll('_', ' ')} · ${data.loan.tenure_months || '—'} months`}</strong></article>
         <article><span>Total scheduled interest</span><strong>{money(data.loan.total_scheduled_interest, currency)}</strong></article>
         <article><span>Total scheduled repayment</span><strong>{money(data.loan.total_scheduled_repayment, currency)}</strong></article>
@@ -33,7 +42,7 @@ export default function LeadPortalDashboard({ api }) {
         <article><span>Total paid</span><strong>{money(data.loan.total_paid, currency)}</strong></article>
         <article><span>Remaining balance</span><strong>{money(data.loan.remaining_balance, currency)}</strong></article>
       </div>
-      <h3>Upcoming payments</h3>
+      <h3 className="lead-portal-payments">Upcoming payments</h3>
       {data.upcoming_payments.length ? <div className="table-wrap"><table><thead><tr><th>Installment</th><th>Due date</th><th>Principal</th><th>Interest</th><th>Amount remaining</th><th>Status</th></tr></thead><tbody>{data.upcoming_payments.map((item) => <tr key={item.id}><td>{item.installment_number}</td><td>{new Date(`${item.due_date}T00:00:00`).toLocaleDateString()}</td><td>{money(item.principal_due, currency)}</td><td>{money(item.interest_due, currency)}</td><td>{money(item.amount, currency)}</td><td>{item.status}</td></tr>)}</tbody></table></div> : <p className="muted">No upcoming payments.</p>}
       {data.overdue_payments.length > 0 && <><h3>Overdue payments</h3><div className="table-wrap"><table><thead><tr><th>Installment</th><th>Due date</th><th>Principal</th><th>Interest</th><th>Amount remaining</th><th>Status</th></tr></thead><tbody>{data.overdue_payments.map((item) => <tr key={item.id}><td>{item.installment_number}</td><td>{new Date(`${item.due_date}T00:00:00`).toLocaleDateString()}</td><td>{money(item.principal_due, currency)}</td><td>{money(item.interest_due, currency)}</td><td>{money(item.amount, currency)}</td><td>{item.status}</td></tr>)}</tbody></table></div></>}
       <h3>Payment history</h3>

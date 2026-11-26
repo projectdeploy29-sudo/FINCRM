@@ -23,8 +23,7 @@ class Lead(models.Model):
         CONTACTED = "contacted", "Contacted"
         APPROVED = "approved", "Approved"
         DISBURSED = "disbursed", "Disbursed"
-        QUALIFIED = "qualified", "Qualified"
-        UNQUALIFIED = "unqualified", "Unqualified"
+        COMPLETED = "completed", "Completed"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
@@ -56,19 +55,10 @@ class Lead(models.Model):
         'accounts.User', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='lead_portal_profile',
     )
-    converted_customer = models.ForeignKey(
-        'customers.Customer', on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='converted_from_leads',
-    )
     customer = models.ForeignKey(
         'customers.Customer', on_delete=models.PROTECT, null=True, blank=True,
         related_name='leads',
     )
-    application = models.OneToOneField(
-        'applications.FinancialApplication', on_delete=models.PROTECT, null=True, blank=True,
-        related_name='lead_record',
-    )
-
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.OTHER)
     priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
@@ -79,6 +69,18 @@ class Lead(models.Model):
         blank=True,
     )
     currency = models.CharField(max_length=3, default="INR")
+    requested_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    approved_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    disbursed_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    upfront_deductions_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    net_disbursed_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    annual_interest_rate = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
+    interest_calculation_method = models.CharField(max_length=20, default='monthly_reducing')
+    loan_tenure_months = models.PositiveIntegerField(null=True, blank=True)
+    monthly_repayment_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    next_payment_due_date = models.DateField(null=True, blank=True)
+    disbursed_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         "employes.Employee",
         on_delete=models.PROTECT,

@@ -1,2 +1,79 @@
 .plan-catalog .plans-intro{margin-bottom:24px}.plan-cycle-picker{display:flex;justify-content:center;gap:8px;margin:0 0 26px}.plan-cycle-picker button{min-width:112px;font-weight:650}.plan-cycle-picker button.active{color:#075bea;background:#eaf2ff;border-color:#cfe0ff}.plans-success{max-width:800px;margin:0 auto 18px;padding:14px;border-radius:10px;background:#e7f8ee;color:#087647}.payment-retry{display:block;margin:0 auto 18px;color:#075bea}.plan-modal-backdrop{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:18px;background:#101b2d77}.plan-modal{position:relative;width:min(560px,100%);max-height:92vh;overflow:auto;padding:28px;background:#fff;border:1px solid #dce4ef;border-radius:18px;box-shadow:0 18px 60px #101b2d40}.plan-modal h2{margin:0 36px 10px 0;font-size:25px}.plan-modal>p{color:#65748a;line-height:1.55}.plan-modal form{display:grid;gap:16px}.plan-modal label{display:grid;gap:6px;color:#536177;font-size:14px}.plan-modal label span{display:inline;color:#8a96a9;font-weight:400}.plan-modal input,.plan-modal textarea{width:100%;margin-top:3px}.plan-modal textarea{resize:vertical}.plan-modal-close{position:absolute;right:16px;top:14px;width:36px;height:36px;padding:0;border:0;background:transparent;font-size:25px}.plan-modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:8px}.plan-modal-actions button[type=submit],.plan-modal-actions button:last-child{background:#1764e8;color:#fff;border-color:#1764e8;font-weight:650}.enterprise-modal{width:min(720px,100%)}.enterprise-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.enterprise-note{grid-column:1/-1}@media(max-width:620px){.enterprise-fields{grid-template-columns:1fr}.enterprise-note{grid-column:auto}.plan-modal{padding:23px 18px}.plan-modal-actions{flex-wrap:wrap}}
 .enterprise-honeypot{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}
+
+/* Plan selection dialogs use the same centered popup pattern as the other dialogs. */
+.plan-catalog .plan-modal-backdrop{
+  place-items:center;
+  padding:24px;
+  background:rgba(18,24,42,.52);
+  backdrop-filter:blur(3px);
+}
+.plan-catalog .plan-modal{
+  width:min(560px,calc(100vw - 32px));
+  max-height:min(86vh,760px);
+  height:auto;
+  padding:0;
+  border:1px solid #cfd5e2;
+  border-radius:16px;
+  background:#f8f9fb;
+  box-shadow:0 24px 80px rgba(18,24,42,.28);
+  overflow-y:auto;
+  animation:planModalEnter .3s cubic-bezier(.2,.75,.25,1) both;
+}
+.plan-catalog .plan-modal h2{
+  position:sticky;
+  top:0;
+  z-index:1;
+  margin:0;
+  padding:22px 58px 18px 22px;
+  border-bottom:1px solid #303750;
+  background:linear-gradient(110deg,#171d35 0%,#1d2442 72%,#38202f 100%);
+  color:#fff;
+  font-size:20px;
+}
+.plan-catalog .plan-modal>p{
+  margin:14px 20px 0;
+  padding:12px;
+  border:1px solid #e4e7ee;
+  border-radius:9px;
+  background:#fff;
+  color:#69748a;
+}
+.plan-catalog .plan-modal form{
+  margin:14px 20px 20px;
+  padding:16px;
+  border:1px solid #e4e7ee;
+  border-radius:10px;
+  background:#fff;
+}
+.plan-catalog .plan-modal-close{
+  right:14px;
+  top:23px;
+  z-index:2;
+  width:36px;
+  height:36px;
+  border:0;
+  color:#fff;
+  background:rgba(255,255,255,.08);
+  border-radius:8px;
+}
+.plan-catalog .plan-modal-actions button[type=submit],
+.plan-catalog .plan-modal-actions button:last-child{
+  background:#ec303b;
+  border-color:#ec303b;
+  border-radius:8px;
+}
+.plan-catalog .enterprise-fields{gap:10px}
+.plan-catalog .enterprise-fields label{font-size:12px}
+.plan-catalog .enterprise-fields input,
+.plan-catalog .enterprise-fields textarea{min-height:42px}
+.plan-catalog .enterprise-note{padding-top:4px}
+@keyframes planModalEnter{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(max-width:620px){
+  .plan-catalog .plan-modal-backdrop{padding:12px}
+  .plan-catalog .plan-modal{width:100%;max-height:calc(100dvh - 24px);border-radius:14px}
+  .plan-catalog .plan-modal h2{font-size:18px;padding:18px 52px 15px 16px}
+  .plan-catalog .plan-modal>p{margin:12px 14px 0}
+  .plan-catalog .plan-modal form{margin:12px 14px 16px}
+}
+@media(prefers-reduced-motion:reduce){.plan-catalog .plan-modal{animation:none}}

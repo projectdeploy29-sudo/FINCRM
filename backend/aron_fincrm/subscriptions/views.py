@@ -3,10 +3,12 @@ import hashlib
 import json
 from datetime import timedelta
 import hmac
+from io import BytesIO
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, Q, Sum, Value, When
+from django.http import FileResponse
 from django.utils import timezone
 from django.utils.html import escape
 from rest_framework import generics, status
@@ -15,7 +17,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.permissions import IsAuthenticated
-from subscriptions.models import EnterpriseInquiry, Plan, Subscription, Payment, PlanCheckout, SubscriptionPlatformSettings
+from subscriptions.models import AIAssistantUsage, EnterpriseInquiry, Plan, Subscription, Payment, PlanCheckout, SubscriptionPlatformSettings
 from subscriptions.configuration import is_subscription_checkout_enabled
 from subscriptions.serializers import (
     PlanSerializer,
@@ -29,7 +31,11 @@ from subscriptions.serializers import (
     EnterprisePlanAdminSerializer,
     EnterprisePlanUpdateSerializer,
     SubscriptionPlanAdminSerializer,
+    InvoiceIssuerSettingsSerializer,
+    PaymentInvoiceDetailsSerializer,
 )
+from accounts.models import Manager, TeamLead
+from employes.models import Employee
 from organizations.tenant import get_user_organization, get_user_role_context
 from permitions.permissions import IsAuthenticatedTenant, IsOrgAdmin
 from subscriptions.registration import (
@@ -55,6 +61,7 @@ from subscriptions.registration import hash_registration_token
 from subscriptions.webhooks import process_razorpay_event, WebhookProcessingError
 from rest_framework.permissions import BasePermission
 from subscriptions.models import RazorpayWebhookEvent
+from subscriptions.payment_documents import build_payment_receipt, build_test_gst_invoice
 
 
 class PlanListView(generics.ListAPIView):
@@ -295,6 +302,7 @@ class PlanCheckoutVerifyView(APIView):
         )
         payment = Payment.objects.create(
             subscription=subscription,
+            checkout=checkout,
             amount=checkout.amount,
             currency=checkout.currency,
             provider='RAZORPAY',
@@ -334,6 +342,27 @@ class SubscriptionCurrentView(APIView):
         serializer = SubscriptionSerializer(sub)
         data = serializer.data
         data['has_active_subscription'] = True
+        role = get_user_role_context(request.user, request)
+        if role['hierarchy_level'] >= 90 and role['role_code'] != 'lead_portal':
+            today = timezone.localdate()
+            token_usage = AIAssistantUsage.objects.filter(
+                organization=org,
+                created_at__date=today,
+            ).aggregate(
+                input_tokens=Sum('input_tokens'),
+                output_tokens=Sum('output_tokens'),
+                total_tokens=Sum('total_tokens'),
+            )
+            total_limit = sub.plan.daily_ai_tokens
+            tokens_used = token_usage['total_tokens'] or 0
+            data['ai_tokens'] = {
+                'period': 'today',
+                'used': tokens_used,
+                'total': total_limit,
+                'remaining': max(total_limit - tokens_used, 0) if total_limit is not None else None,
+                'input_used': token_usage['input_tokens'] or 0,
+                'output_used': token_usage['output_tokens'] or 0,
+            }
         return Response(data, status=status.HTTP_200_OK)
 
 
@@ -562,7 +591,39 @@ class PaymentHistoryView(generics.ListAPIView):
         org = get_user_organization(self.request.user)
         if not org:
             return Payment.objects.none()
-        return Payment.objects.filter(subscription__organization=org).order_by('-created_at')
+        return Payment.objects.filter(subscription__organization=org).select_related(
+            'subscription__plan', 'subscription__organization', 'checkout__plan',
+        ).order_by('-created_at')
+
+
+class PaymentDocumentDownloadView(APIView):
+    """Download a paid receipt or clearly marked GST invoice test draft."""
+    permission_classes = [IsAuthenticatedTenant, IsOrgAdmin]
+
+    def get(self, request, payment_id, document_type):
+        org = get_user_organization(request.user, request)
+        if not org:
+            return Response({'detail': 'No organization is associated with this account.'}, status=status.HTTP_404_NOT_FOUND)
+        payment = Payment.objects.filter(
+            pk=payment_id,
+            subscription__organization=org,
+            status=Payment.Status.SUCCEEDED,
+        ).select_related(
+            'subscription__plan', 'subscription__organization', 'checkout__plan', 'checkout__organization',
+        ).first()
+        if not payment:
+            return Response({'detail': 'Paid billing document was not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if document_type == 'receipt':
+            reference, content = build_payment_receipt(payment=payment)
+            filename = f'auron-fin-crm-payment-receipt-{reference}.pdf'
+        elif document_type == 'invoice':
+            reference, content = build_test_gst_invoice(payment=payment)
+            filename = f'auron-fin-crm-gst-test-draft-{reference}.pdf'
+        else:
+            return Response({'detail': 'Unknown billing document.'}, status=status.HTTP_404_NOT_FOUND)
+        response = FileResponse(BytesIO(content), as_attachment=True, filename=filename, content_type='application/pdf')
+        response['Cache-Control'] = 'private, no-store'
+        return response
 
 
 class IsFinCRMAdministrator(BasePermission):
@@ -641,6 +702,7 @@ class EnterpriseManagementView(APIView):
     permission_classes = [IsFinCRMAdministrator]
 
     def get(self, request):
+        platform_settings, _ = SubscriptionPlatformSettings.objects.get_or_create(pk=1)
         inquiries = EnterpriseInquiry.objects.select_related('assigned_admin', 'custom_plan').order_by('-created_at')
         checkouts = PlanCheckout.objects.filter(enterprise_inquiry__isnull=False).select_related('plan', 'organization').order_by('-created_at')
         customers = []
@@ -656,6 +718,90 @@ class EnterpriseManagementView(APIView):
                 'subscription_status': subscription.status if subscription else 'pending',
                 'registered': bool(subscription),
             })
+        today = timezone.localdate()
+        all_subscriptions = Subscription.objects.select_related(
+            'plan', 'organization', 'payment__checkout__enterprise_inquiry',
+        ).order_by('-created_at')
+        detailed_subscriptions = []
+        User = get_user_model()
+        for subscription in all_subscriptions:
+            organization = subscription.organization
+            checkout = (
+                subscription.payment.checkout
+                if subscription.payment_id and subscription.payment.checkout_id else None
+            )
+            if checkout is None:
+                checkout = PlanCheckout.objects.filter(
+                    organization=organization, plan=subscription.plan,
+                ).select_related('enterprise_inquiry', 'plan').order_by('-paid_at', '-created_at').first()
+            purchaser = User.objects.filter(
+                default_organization=organization, is_superuser=False,
+            ).order_by('date_joined').first()
+            purchaser_name = (
+                (checkout.customer_name if checkout else '')
+                or (purchaser.get_full_name() if purchaser else '')
+                or (purchaser.username if purchaser else '')
+                or organization.name
+            )
+            purchaser_email = (
+                (checkout.purchaser_email if checkout else '')
+                or (purchaser.email if purchaser else '')
+                or organization.email
+            )
+            employee_count = Employee.objects.filter(organization=organization).count()
+            manager_count = Manager.objects.filter(organization=organization).count()
+            team_lead_count = TeamLead.objects.filter(organization=organization).count()
+            staff_count = employee_count + manager_count + team_lead_count
+            active_staff_count = (
+                Employee.objects.filter(organization=organization, employment_status='active').count()
+                + Manager.objects.filter(organization=organization, employment_status='active').count()
+                + TeamLead.objects.filter(organization=organization, employment_status='active').count()
+            )
+            token_usage = AIAssistantUsage.objects.filter(
+                organization=organization, created_at__date=today,
+            ).aggregate(
+                input_tokens=Sum('input_tokens'),
+                output_tokens=Sum('output_tokens'),
+                total_tokens=Sum('total_tokens'),
+            )
+            daily_token_limit = subscription.plan.daily_ai_tokens
+            tokens_used = token_usage['total_tokens'] or 0
+            serialized = SubscriptionSerializer(subscription).data
+            serialized.update({
+                'purchaser': {
+                    'name': purchaser_name,
+                    'email': purchaser_email,
+                    'username': purchaser.username if purchaser else '',
+                    'phone': organization.phone,
+                    'registered_at': purchaser.date_joined if purchaser else None,
+                },
+                'registration_status': 'completed' if purchaser else 'admin account not found',
+                'staff_accounts': {
+                    'used': staff_count,
+                    'limit': subscription.plan.max_employees,
+                    'active': active_staff_count,
+                    'employees': employee_count,
+                    'managers': manager_count,
+                    'team_leads': team_lead_count,
+                    'remaining': max(subscription.plan.max_employees - staff_count, 0)
+                    if subscription.plan.max_employees is not None else None,
+                },
+                'ai_tokens': {
+                    'period': 'today',
+                    'limit': daily_token_limit,
+                    'input_used': token_usage['input_tokens'] or 0,
+                    'output_used': token_usage['output_tokens'] or 0,
+                    'used': tokens_used,
+                    'remaining': max(daily_token_limit - tokens_used, 0)
+                    if daily_token_limit is not None else None,
+                },
+                'checkout_status': checkout.status if checkout else '',
+                'payment_amount': str(subscription.payment.amount) if subscription.payment_id else '',
+                'payment_currency': subscription.payment.currency if subscription.payment_id else '',
+                'payment_id': subscription.payment.provider_payment_id if subscription.payment_id else '',
+            })
+            detailed_subscriptions.append(serialized)
+
         return Response({
             'requests': EnterpriseInquiryAdminSerializer(inquiries, many=True).data,
             'administrators': [
@@ -664,10 +810,17 @@ class EnterpriseManagementView(APIView):
             ],
             'customers': customers,
             'plans': EnterprisePlanAdminSerializer(Plan.objects.filter(enterprise_inquiries__isnull=False).distinct().order_by('-created_at'), many=True).data,
-            'subscriptions': SubscriptionSerializer(Subscription.objects.filter(
-                Q(plan__enterprise_inquiries__isnull=False) | Q(plan__code='enterprise'),
-            ).select_related('plan', 'organization').order_by('-created_at'), many=True).data,
-            'payments': PaymentSerializer(Payment.objects.filter(checkout__enterprise_inquiry__isnull=False).select_related('subscription', 'checkout').order_by('-created_at'), many=True).data,
+            'subscriptions': detailed_subscriptions,
+            'payments': PaymentSerializer(Payment.objects.select_related(
+                'subscription__plan', 'subscription__organization', 'checkout__plan',
+            ).order_by('-created_at'), many=True).data,
+            'invoice_settings': {
+                'invoice_issuer_name': platform_settings.invoice_issuer_name,
+                'invoice_issuer_address': platform_settings.invoice_issuer_address,
+                'invoice_issuer_gstin': platform_settings.invoice_issuer_gstin,
+                'invoice_sac_hsn_code': platform_settings.invoice_sac_hsn_code,
+                'invoice_gst_rate_percent': platform_settings.invoice_gst_rate_percent,
+            },
             'invitations': [{
                 'checkout_id': str(row.pk),
                 'email': row.purchaser_email,
@@ -682,7 +835,14 @@ class EnterpriseManagementView(APIView):
 
     def patch(self, request, inquiry_id=None):
         if inquiry_id is None:
-            return Response({'detail': 'An inquiry ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            settings_serializer = InvoiceIssuerSettingsSerializer(data=request.data.get('invoice_settings', request.data))
+            settings_serializer.is_valid(raise_exception=True)
+            platform_settings, _ = SubscriptionPlatformSettings.objects.get_or_create(pk=1)
+            for field, value in settings_serializer.validated_data.items():
+                setattr(platform_settings, field, value)
+            platform_settings.updated_by = request.user
+            platform_settings.save(update_fields=[*settings_serializer.validated_data.keys(), 'updated_by', 'updated_at'])
+            return Response({'invoice_settings': settings_serializer.data})
         inquiry = EnterpriseInquiry.objects.filter(pk=inquiry_id).first()
         if not inquiry:
             return Response({'detail': 'Enterprise request was not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -690,6 +850,20 @@ class EnterpriseManagementView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class EnterprisePaymentInvoiceDetailsView(APIView):
+    permission_classes = [IsFinCRMAdministrator]
+
+    def patch(self, request, payment_id):
+        payment = Payment.objects.filter(pk=payment_id).first()
+        if not payment:
+            return Response({'detail': 'Payment was not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = PaymentInvoiceDetailsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment.invoice_customer_gstin = serializer.validated_data['invoice_customer_gstin'].strip().upper()
+        payment.save(update_fields=['invoice_customer_gstin'])
+        return Response({'invoice_customer_gstin': payment.invoice_customer_gstin})
 
 
 class EnterprisePlanManagementView(APIView):
@@ -843,7 +1017,7 @@ class EnterprisePaymentInvitationView(APIView):
         try:
             from django.core.mail import send_mail
             sent = send_mail(
-                f'Your FinCRM Enterprise plan: {plan.name}', body,
+                f'Your Auron FIN CRM Enterprise plan: {plan.name}', body,
                 settings.DEFAULT_FROM_EMAIL, [inquiry.email], fail_silently=False,
                 html_message=(
                     f'<p>Hello {escape(inquiry.full_name)},</p>'

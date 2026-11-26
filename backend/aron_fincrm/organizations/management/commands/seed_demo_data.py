@@ -5,7 +5,6 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import Manager, TeamLead
-from applications.models import FinancialApplication
 from customers.models import Customer
 from employes.models import Employee
 from finance.models import RepaymentPayment, RepaymentSchedule
@@ -17,7 +16,6 @@ from tasks.models import (
     CostomerFollowUp,
     LeadFollowUp,
     Task,
-    applicationFollowUp,
 )
 
 
@@ -133,7 +131,9 @@ class Command(BaseCommand):
                 "city": "Pune",
                 "state": "Maharashtra",
                 "source": "Referral",
-                "status": Customer.Status.ACTIVE,
+                "status": Customer.Status.CONVERTED,
+                "requested_amount": "240000.00",
+                "currency": "INR",
                 "created_by": employee,
                 "assigned_to": employee,
                 "notes": "Demo customer record",
@@ -149,33 +149,25 @@ class Command(BaseCommand):
                 "city": customer.city,
                 "state": customer.state,
                 "assigned_to": employee,
-                "converted_customer": customer,
+                "customer": customer,
                 "source": Lead.Source.REFERRAL,
                 "priority": Lead.Priority.HIGH,
-                "status": Lead.Status.QUALIFIED,
+                "status": Lead.Status.DISBURSED,
                 "expected_amount": "240000.00",
+                "requested_amount": "240000.00",
+                "approved_amount": "220000.00",
+                "disbursed_amount": "220000.00",
+                "upfront_deductions_amount": "0.00",
+                "net_disbursed_amount": "220000.00",
+                "annual_interest_rate": "12.0000",
+                "interest_calculation_method": "monthly_reducing",
+                "loan_tenure_months": 12,
+                "monthly_repayment_amount": "19554.00",
+                "disbursed_at": now - timedelta(days=10),
                 "currency": "INR",
                 "created_by": employee,
             },
         )
-        application, _ = FinancialApplication.objects.update_or_create(
-            organization=organization,
-            application_code="DEMO-APP-001",
-            defaults={
-                "customer": customer,
-                "lead": lead,
-                "assigned_employee": employee,
-                "status": FinancialApplication.Status.DISBURSED,
-                "requested_amount": "240000.00",
-                "approved_amount": "220000.00",
-                "disbursed_amount": "220000.00",
-                "currency": "INR",
-                "submitted_at": now - timedelta(days=10),
-                "notes": "Demo loan application",
-                "created_by": accounts["demo_employee"],
-            },
-        )
-
         task_specs = (
             ("DEMO-TASK-MANAGER", "Check team conversion progress", accounts["demo_manager"], accounts["demo_admin"], 1, Task.Priority.MEDIUM),
             ("DEMO-TASK-TEAMLEAD", "Review employee follow-ups", accounts["demo_teamlead"], accounts["demo_manager"], 0, Task.Priority.HIGH),
@@ -197,7 +189,6 @@ class Command(BaseCommand):
                     "team": team,
                     "related_customer": customer,
                     "related_lead": lead,
-                    "related_application": application,
                     "priority": priority,
                     "status": Task.Status.PENDING,
                     "start_date": now,
@@ -227,20 +218,8 @@ class Command(BaseCommand):
                 "notes": "Discuss additional requirements",
             },
         )
-        applicationFollowUp.objects.update_or_create(
-            organization=organization,
-            application=application,
-            followup_type="EMAIL",
-            defaults={
-                "created_by": employee,
-                "scheduled_at": now + timedelta(days=2),
-                "status": "PENDING",
-                "notes": "Send repayment schedule",
-            },
-        )
-
         schedule, _ = RepaymentSchedule.objects.update_or_create(
-            application=application,
+            lead=lead,
             installment_number=1,
             defaults={
                 "organization": organization,
@@ -309,6 +288,6 @@ class Command(BaseCommand):
         ):
             self.stdout.write(f"  {role}: {username} / {password}")
         self.stdout.write(
-            "Seeded: 1 department, 1 team, customer, lead, application, 3 tasks, "
+            "Seeded: 1 department, 1 team, customer, lead, 3 tasks, "
             "3 follow-ups, repayment schedule/payment, and active Starter subscription."
         )

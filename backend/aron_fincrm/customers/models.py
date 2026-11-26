@@ -16,8 +16,10 @@ class Customer(models.Model):
         OTHER = "other", "Other"
 
     class Status(models.TextChoices):
-        PROSPECT = "prospect", "Prospect"
-        ACTIVE = "active", "Active"
+        NEW = "new", "New"
+        CONTACTED = "contacted", "Contacted"
+        UNDER_REVIEW = "under_review", "Under review"
+        CONVERTED = "converted", "Converted to lead"
         INACTIVE = "inactive", "Inactive"
 
     class Priority(models.TextChoices):
@@ -51,9 +53,11 @@ class Customer(models.Model):
     segment = models.CharField(max_length=100, blank=True)
     source = models.CharField(max_length=100, blank=True)
     
-    status = models.CharField(max_length=20, choices=Status.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
     # Customer conversion likelihood; distinct from VIP/General tags.
     priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
+    requested_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=3, default='INR')
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(
         "employes.employee",
@@ -125,6 +129,19 @@ class CustomerAssignmentHistory(models.Model):
 
     class Meta:
         db_table = 'customers_customerassignmenthistory'
+        ordering = ['-changed_at']
+
+
+class CustomerStatusHistory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer = models.ForeignKey('customers.Customer', on_delete=models.CASCADE, related_name='status_history')
+    old_status = models.CharField(max_length=20, blank=True, choices=Customer.Status.choices)
+    new_status = models.CharField(max_length=20, choices=Customer.Status.choices)
+    changed_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT)
+    notes = models.TextField(blank=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
         ordering = ['-changed_at']
 
 

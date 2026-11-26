@@ -15,7 +15,6 @@ from tasks.models import (
     TaskHistory,
     CostomerFollowUp,
     LeadFollowUp,
-    applicationFollowUp,
 )
 
 
@@ -43,7 +42,7 @@ class TaskSerializer(serializers.ModelSerializer):
 
         related_fields = (
             'assigned_to', 'department', 'team', 'related_customer',
-            'related_lead', 'related_application',
+            'related_lead',
         )
         for field in related_fields:
             related = attrs.get(field, getattr(instance, field, None))
@@ -53,11 +52,11 @@ class TaskSerializer(serializers.ModelSerializer):
         manager = user.manager_set.first() if level >= 70 and hasattr(user, 'manager_set') else None
         profile = user.teamlead_profiles.first() if 50 <= level < 70 and hasattr(user, 'teamlead_profiles') else None
 
-        for field in ('related_customer', 'related_lead', 'related_application'):
+        for field in ('related_customer', 'related_lead'):
             target = attrs.get(field, getattr(instance, field, None))
             if not target:
                 continue
-            owner = target.assigned_employee if field == 'related_application' else target.assigned_to
+            owner = target.assigned_to
             if level < 50 and (not employee or not owner or owner.id != employee.id):
                 raise serializers.ValidationError({field: 'Related records must be assigned to you.'})
             if 50 <= level < 70 and (
@@ -151,11 +150,6 @@ class TaskSerializer(serializers.ModelSerializer):
 
         customer = attrs.get('related_customer', getattr(instance, 'related_customer', None))
         lead = attrs.get('related_lead', getattr(instance, 'related_lead', None))
-        application = attrs.get('related_application', getattr(instance, 'related_application', None))
-        if application and customer and application.customer_id != customer.id:
-            raise serializers.ValidationError({'related_customer': 'Customer must match the selected application.'})
-        if application and lead and application.lead_id != lead.id:
-            raise serializers.ValidationError({'related_lead': 'Lead must match the selected application.'})
         if lead and customer and lead.customer_id and lead.customer_id != customer.id:
             raise serializers.ValidationError({'related_customer': 'Customer must match the selected lead.'})
         return attrs
@@ -220,15 +214,10 @@ class CustomerFollowUpSerializer(serializers.ModelSerializer):
     def _related_record(self, obj):
         if self.Meta.model is CostomerFollowUp:
             return obj.customer
-        if self.Meta.model is LeadFollowUp:
-            return obj.lead
-        return obj.application
+        return obj.lead
 
     def _contact_customer(self, obj):
-        record = self._related_record(obj)
-        if self.Meta.model is applicationFollowUp:
-            return getattr(record, 'customer', None)
-        return record if self.Meta.model is CostomerFollowUp else None
+        return obj.customer if self.Meta.model is CostomerFollowUp else None
 
     def get_contact_name(self, obj):
         record = self._related_record(obj)
@@ -247,7 +236,7 @@ class CustomerFollowUpSerializer(serializers.ModelSerializer):
 
     def get_contact_record_code(self, obj):
         record = self._related_record(obj)
-        return getattr(record, 'lead_code', '') or getattr(record, 'customer_code', '') or getattr(record, 'application_code', '') or ''
+        return getattr(record, 'lead_code', '') or getattr(record, 'customer_code', '') or ''
 
     def get_created_by_name(self, obj):
         user = getattr(getattr(obj, 'created_by', None), 'user', None) or getattr(obj, 'created_by_user', None)
@@ -262,10 +251,7 @@ class CustomerFollowUpSerializer(serializers.ModelSerializer):
         user = request.user
         org = get_user_organization(user, request)
         instance = self.instance
-        relation_name = (
-            'customer' if self.Meta.model is CostomerFollowUp else
-            'lead' if self.Meta.model is LeadFollowUp else 'application'
-        )
+        relation_name = 'customer' if self.Meta.model is CostomerFollowUp else 'lead'
         target = attrs.get(relation_name, getattr(instance, relation_name, None))
         if not org or not target or target.organization_id != org.id:
             raise serializers.ValidationError({relation_name: 'Choose a record in your organization.'})
@@ -285,12 +271,7 @@ class CustomerFollowUpSerializer(serializers.ModelSerializer):
         if (not instance or assigned != instance.assigned_to) and assigned.employment_status != Employee.EmploymentStatus.ACTIVE:
             raise serializers.ValidationError({'assigned_to': 'Assign follow-ups only to active employees.'})
 
-        owner_field = {
-            CostomerFollowUp: 'assigned_to',
-            LeadFollowUp: 'assigned_to',
-            applicationFollowUp: 'assigned_employee',
-        }[self.Meta.model]
-        owner = getattr(target, owner_field, None)
+        owner = getattr(target, 'assigned_to', None)
         if level < 50 and (not employee or assigned != employee or (not instance and owner != employee)):
             raise serializers.ValidationError({relation_name: 'Employees can only manage follow-ups for their own assigned records.'})
         if 50 <= level < 70:
@@ -353,8 +334,3 @@ class CustomerFollowUpSerializer(serializers.ModelSerializer):
 class LeadFollowUpSerializer(CustomerFollowUpSerializer):
     class Meta(CustomerFollowUpSerializer.Meta):
         model = LeadFollowUp
-
-
-class ApplicationFollowUpSerializer(CustomerFollowUpSerializer):
-    class Meta(CustomerFollowUpSerializer.Meta):
-        model = applicationFollowUp

@@ -35,10 +35,11 @@ class Document(models.Model):
         on_delete=models.SET_NULL,
         null=True,
     )
-    application = models.ForeignKey(
-        "applications.FinancialApplication",
+    lead = models.ForeignKey(
+        "leads.Lead",
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
     )
     category = models.ForeignKey(
         "documents.DocumentCategory",

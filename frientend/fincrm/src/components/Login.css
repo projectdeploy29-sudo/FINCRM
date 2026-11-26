@@ -1,4 +1,4 @@
-.public-layout{min-height:100vh;background:#f3f6fb;color:#172033}
+.public-layout{min-height:100vh;display:flex;flex-direction:column;background:#f3f6fb;color:#172033}
 .public-header{min-height:76px;padding:12px clamp(20px,4vw,64px);display:flex;align-items:center;justify-content:space-between;background:#fff;border-bottom:1px solid #e0e7f0}
 .public-header .brand{padding:0}
 .public-header nav{display:flex;gap:10px}
@@ -30,5 +30,175 @@
 .public-auth form input{width:100%;margin-top:6px}
 .public-auth form button[type=submit]{justify-self:start;background:#1764e8;color:#fff;border-color:#1764e8}
 .public-auth [role=alert]{color:#b42318;background:#fff0ed;padding:12px;border-radius:9px;overflow-wrap:anywhere}
+.forgot-password-link{justify-self:start!important;width:auto!important;padding:8px 0!important;background:transparent!important;border:0!important;color:#1764e8!important}
+.reset-confirm-backdrop{position:fixed;inset:0;z-index:40;background:#11162988;display:grid;place-items:center;padding:16px}
+.reset-confirm{width:min(540px,100%);padding:26px;background:#fff;border-radius:16px;box-shadow:0 20px 70px #101b2d44}
+.reset-confirm h3{margin-top:0}.reset-confirm p{color:#65748a;line-height:1.55}.reset-confirm form{display:grid;gap:16px}.reset-confirm input{width:100%;margin-top:6px}.reset-confirm-actions{display:flex;justify-content:flex-end;gap:10px}
 @media(max-width:1150px){.plan-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.plan-card{min-height:550px}}
 @media(max-width:620px){.public-header{min-height:64px}.plans-intro{margin-bottom:30px;font-size:17px}.plan-grid{grid-template-columns:1fr}.plan-card{min-height:0}.plan-card ul{min-height:0}.plan-price{margin-top:0}}
+
+/* Compact, balanced cards for the authenticated plan catalog. */
+.plan-catalog.public-plans{width:100%;max-width:1600px;margin:0 auto;padding:8px clamp(8px,1.5vw,24px) 42px}
+.plan-page-heading{max-width:900px;margin:0 auto 24px;text-align:center}
+.plan-page-heading>span{display:inline-flex;align-items:center;gap:8px;margin-bottom:8px;color:#e32f3b;font-size:10px;font-weight:850;letter-spacing:.14em}
+.plan-page-heading>span::before{content:"";width:7px;height:7px;border-radius:50%;background:#ef303b;box-shadow:0 0 0 4px #ef303b18}
+.plan-page-heading h1{margin:0;color:#171d35;font-size:clamp(26px,3vw,38px);letter-spacing:-.045em;line-height:1.1}
+.plan-page-heading p{margin:10px 0 0;color:#758198;font-size:14px;line-height:1.6}
+.plan-catalog .plan-cycle-picker{margin:0 0 20px}
+.plan-catalog .plan-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;align-items:stretch}
+.plan-catalog .plan-card{min-width:0;min-height:0;padding:20px 18px 19px;border:1px solid #dfe5ef;border-radius:17px;box-shadow:0 8px 24px rgba(23,29,53,.045);transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease}
+.plan-catalog .plan-card:hover,.plan-catalog .plan-card:focus-within{transform:translateY(-4px);border-color:#edb3b8;box-shadow:0 16px 34px rgba(23,29,53,.1)}
+.plan-catalog .plan-card.popular{border-color:#ef303b;box-shadow:0 10px 28px rgba(239,48,59,.085)}
+.plan-catalog .plan-card.popular:hover,.plan-catalog .plan-card.popular:focus-within{border-color:#ef303b;box-shadow:0 18px 38px rgba(239,48,59,.14)}
+.plan-catalog .plan-title{min-height:36px;align-items:flex-start}
+.plan-catalog .plan-title h2{font-size:clamp(18px,1.55vw,23px);line-height:1.2}
+.plan-catalog .plan-title span{flex:none;padding:5px 7px;background:#fff0f1;color:#cf2632;font-size:8px;letter-spacing:.07em}
+.plan-catalog .plan-description{min-height:60px;margin:9px 0 0;font-size:12px;line-height:1.55}
+.plan-catalog .plan-price{min-height:42px;margin:16px 0 0;color:#171d35;font-size:clamp(20px,1.75vw,25px);line-height:1.2;letter-spacing:-.045em;overflow-wrap:anywhere}
+.plan-catalog .plan-price small{white-space:nowrap;font-size:12px;letter-spacing:0}
+.plan-catalog .plan-card ul{min-height:0;margin:15px 0 18px;padding:15px 0 0;gap:11px;border-color:#e8ebf1}
+.plan-catalog .plan-card li{padding-left:20px;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.plan-catalog .plan-card li::before{color:#ef303b}
+.plan-catalog .plan-cta{min-height:46px;margin-top:auto;border-radius:10px;font-size:13px}
+.plan-catalog .plan-card.popular .plan-cta,.plan-catalog .plan-card.popular .plan-cta:hover{background:#ef303b;border-color:#ef303b;color:#fff;box-shadow:0 8px 16px #ef303b26}
+@media(max-width:1050px){.plan-catalog .plan-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.plan-catalog .plan-card{padding:22px}}
+@media(max-width:620px){.plan-catalog.public-plans{padding:8px 2px 30px}.plan-page-heading{margin-bottom:18px;text-align:left}.plan-page-heading h1{font-size:27px}.plan-page-heading p{font-size:13px}.plan-catalog .plan-grid{grid-template-columns:minmax(0,1fr);gap:12px}.plan-catalog .plan-card{padding:20px}.plan-catalog .plan-title h2{font-size:22px}.plan-catalog .plan-description{min-height:0}.plan-catalog .plan-price{margin-top:14px;font-size:27px}.plan-catalog .plan-card ul{margin:14px 0 18px}.plan-catalog .plan-card li{font-size:14px}}
+@media(prefers-reduced-motion:reduce){.plan-catalog .plan-card{transition:none}.plan-catalog .plan-card:hover{transform:none}}
+.theme-dark .plan-page-heading h1{color:#f2f4fa}.theme-dark .plan-page-heading p{color:#aab5c9}
+
+.public-layout{background:#f4f5f8;color:#171d35}
+.public-home{width:100%;flex:1}
+.public-header{height:78px;padding:12px clamp(20px,5vw,72px);background:rgba(255,255,255,.96)}
+.public-brand{display:flex;align-items:center;gap:10px;padding:0;border:0;background:transparent;color:#171d35}
+.public-brand:hover{border:0;background:transparent;color:#171d35}
+.public-brand img{width:48px;height:48px;border-radius:50%;object-fit:cover}
+.public-brand span{font-size:23px;font-weight:800;letter-spacing:-1px}
+.public-brand strong{color:#ec303b}
+.public-header nav button{border:0;background:transparent;border-radius:9px}
+.public-header nav button.active{background:#171d35;color:#fff}
+.public-header nav button.public-login-link{background:#171d35;color:#fff}
+.public-header nav button.public-login-link:hover{border-color:#ec303b;background:#ec303b;color:#fff}
+.public-header nav button.public-login-link{display:flex;align-items:center;gap:8px;min-width:0;padding:7px 12px}
+.public-avatar-icon{width:27px;height:27px;display:grid;place-items:center;flex:none;border:1px solid rgba(255,255,255,.38);border-radius:50%;background:rgba(255,255,255,.1)}
+.public-avatar-icon svg{width:16px;height:16px;stroke:#fff;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.public-avatar-label{font-size:12px;font-weight:750}
+.public-auth{position:relative;width:min(480px,calc(100% - 32px));margin:82px auto;padding:34px;border:1px solid #e5e8ef;border-radius:18px;box-shadow:0 24px 60px rgba(24,31,54,.12)}
+.public-auth:before{content:'';position:absolute;inset:-1px auto -1px -1px;width:5px;border-radius:18px 0 0 18px;background:#ec303b}
+.public-auth h2{font-size:27px;letter-spacing:-.7px;margin-bottom:24px}
+.public-auth form button[type=submit]{width:100%;justify-self:stretch;background:#ec303b;border-color:#ec303b;border-radius:10px;padding:12px;font-weight:750}
+.public-auth form input{border-radius:9px;height:46px}
+.public-plans{padding-top:42px}
+.plans-intro{max-width:700px;color:#727d91}
+.plan-card{border-radius:18px}
+.plan-card.popular{border-color:#ec303b;box-shadow:0 14px 34px rgba(236,48,59,.12)}
+.plan-card.popular .plan-cta{background:#ec303b;border-color:#ec303b}
+.plan-card.popular .plan-title span{background:#fff0f1;color:#cc2631}
+.plan-card li::before{color:#ec303b}
+@media(max-width:620px){.public-header{height:auto;min-height:64px;gap:6px;padding:8px 10px}.public-brand{gap:4px}.public-brand img{width:32px;height:32px}.public-brand span{font-size:13px;letter-spacing:-.6px}.public-header nav{gap:1px}.public-header nav button{min-width:0;padding:7px 6px;font-size:10px}.public-header nav button.public-login-link{gap:4px;padding:4px 6px}.public-avatar-icon{width:22px;height:22px}.public-avatar-icon svg{width:13px;height:13px}.public-avatar-label{font-size:9px}.public-auth{margin:32px auto;padding:26px 22px}.public-brand-footer{padding:15px 10px;font-size:10px}}
+
+.public-header nav button.public-theme-toggle{min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 11px;border:1px solid #e2e6ee;border-radius:9px;background:#f7f8fa;color:#38445b;font-size:12px;font-weight:700}
+.public-theme-toggle>span:first-child{font-size:17px;line-height:1}
+.public-header nav button.public-theme-toggle:hover{border-color:#c6cedb;background:#edf0f5;color:#171d35}
+.public-layout.theme-dark{background:#101522;color:#edf1fa}
+.theme-dark .public-header{border-color:#2d354a;background:rgba(20,27,44,.97)}
+.theme-dark .public-brand,.theme-dark .public-brand:hover{background:transparent;color:#f1f3fa}
+.theme-dark .public-header nav button{color:#c5ccda}
+.theme-dark .public-header nav button.active{background:#343c55;color:#fff}
+.theme-dark .public-header nav button.public-login-link{background:#ec303b;color:#fff}
+.theme-dark .public-header nav button.public-theme-toggle{border-color:#39435c;background:#252d43;color:#f3f5fb}
+.theme-dark .public-header nav button.public-theme-toggle:hover{border-color:#687694;background:#303952;color:#fff}
+.theme-dark .registration-link-label{color:#c3cada}
+.theme-dark .public-auth,.theme-dark .reset-confirm{border-color:#303950;background:#1a2235;color:#edf1fa;box-shadow:0 18px 52px rgba(0,0,0,.28)}
+.theme-dark .public-auth h2,.theme-dark .reset-confirm h3{color:#f2f4fa}
+.theme-dark .public-auth label,.theme-dark .reset-confirm label{color:#c7cede}
+.theme-dark .public-auth input,.theme-dark .reset-confirm input{border-color:#3a455f;background:#111827;color:#f3f5fa}
+.theme-dark .reset-confirm p{color:#adb7ca}
+.theme-dark .public-home{color:#edf1fa}
+.theme-dark .landing-hero h1,.theme-dark .landing-section-heading h2,.theme-dark .workflow-copy h2,.theme-dark .sidebar-tour-heading h2{color:#f2f4fa}
+.theme-dark .landing-lede,.theme-dark .landing-section-heading>p:last-child,.theme-dark .workflow-copy>p:not(.landing-eyebrow),.theme-dark .sidebar-tour-heading>p:last-child{color:#aeb8cb}
+.theme-dark .landing-capabilities,.theme-dark .landing-showcase,.theme-dark .landing-plans{border-color:#2b3449}
+.theme-dark .landing-feature-card,.theme-dark .showcase-feature-button,.theme-dark .showcase-preview,.theme-dark .landing-sidebar-tour,.theme-dark .landing-workflow,.theme-dark .landing-plans .plan-card{border-color:#313b53;background:#1a2235;color:#edf1fa;box-shadow:0 10px 28px rgba(0,0,0,.18)}
+.theme-dark .landing-feature-card h3,.theme-dark .showcase-feature-copy strong,.theme-dark .showcase-preview-caption strong,.theme-dark .workflow-step-copy b,.theme-dark .landing-plans .plan-title h2{color:#edf1fa}
+.theme-dark .landing-feature-card p,.theme-dark .showcase-feature-copy small,.theme-dark .showcase-preview-caption span,.theme-dark .workflow-step-copy p,.theme-dark .landing-plans .plan-description,.theme-dark .landing-plans .plan-card li{color:#aeb8cb}
+.theme-dark .showcase-feature-button.active{border-color:#93414b;background:#252d43}
+.theme-dark .showcase-preview-top,.theme-dark .showcase-preview-caption{border-color:#343d53}
+.theme-dark .showcase-image-frame{background:linear-gradient(145deg,#202b41,#182033 55%,#2b202d)}
+.theme-dark .sidebar-tour-item{border-color:#303950;background:rgba(34,43,64,.85)}
+.theme-dark .sidebar-tour-text strong{color:#edf1fa}
+.theme-dark .sidebar-tour-text small{color:#abb5c8}
+.theme-dark .landing-workflow{background:linear-gradient(135deg,#1a2235,#171e30)}
+.theme-dark .workflow-step-number{border-color:#6d3942;background:#302331;color:#ff9aa1}
+.theme-dark .workflow-connector{color:#8792aa}
+.theme-dark .landing-plans .plan-price{color:#f2f4fa}
+.theme-dark .landing-plans .plan-price small{color:#aeb8cb}
+.theme-dark .landing-plans .plan-card ul{border-color:#343d53}
+.theme-dark .landing-plans .plan-cycle-picker button{border-color:#39445e;background:#202941;color:#e1e6f0}
+.theme-dark .landing-plans .plan-cycle-picker button.active{border-color:#416fca;background:#20355d;color:#8db3ff}
+.theme-dark .landing-plans .plan-cta{border-color:#ec303b;background:#ec303b;color:#fff}
+.theme-dark .landing-footer{border-color:#2b3449;color:#9ca8bd}
+.theme-dark .landing-footer button{color:#b8c1d1}
+.theme-dark .landing-footer{border-color:#3a455e;background:linear-gradient(110deg,#202940 0%,#222b40 68%,#352631 100%);color:#c0c8d7;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.theme-dark .landing-footer button{border-color:#3a455e;background:#29334a;color:#d9dfeb}
+.theme-dark .landing-footer button:hover{border-color:#9b535b;background:#3b2b3a;color:#fff}
+.theme-dark .landing-footer .brand-footer-powered a{color:#fff}
+.theme-dark .landing-footer-brand strong,.theme-dark .landing-footer-contact h3,.theme-dark .landing-footer-address h3{color:#edf1fa}
+.theme-dark .landing-footer-brand span,.theme-dark .landing-footer-contact a span,.theme-dark .landing-footer-address address{color:#aeb8cb}
+.theme-dark .landing-footer-contact a strong{color:#e1e6f0}
+.theme-dark .landing-footer-bottom{border-color:#39435b;background:rgba(20,27,43,.68);color:#aeb8cb}
+.theme-dark .landing-footer-bottom>span:nth-child(2){color:#aeb8cb}
+.theme-dark .landing-footer-bottom>span:nth-child(2) a,.theme-dark .landing-footer-address>a{color:#ff9ba2}
+.theme-dark .public-brand-footer{border-color:#2b3449;color:#9ca8bd}
+@media(max-width:620px){.public-theme-label{display:none}.public-header nav button.public-theme-toggle{width:33px;height:33px;padding:4px}.public-theme-toggle>span:first-child{font-size:19px}}
+
+/* Refined public-site navigation */
+.public-header{position:sticky;top:0;z-index:30;height:76px;min-height:76px;padding:10px clamp(18px,5vw,72px);border-bottom:1px solid rgba(220,226,237,.85);background:rgba(255,255,255,.92);backdrop-filter:blur(16px);box-shadow:0 5px 22px rgba(25,34,57,.045)}
+.public-brand{gap:10px;flex:none}
+.public-brand img{width:43px;height:43px;box-shadow:0 2px 9px rgba(23,29,53,.08)}
+.public-brand span{font-size:20px;letter-spacing:-.8px;white-space:nowrap}
+.public-header nav{align-items:center;gap:7px}
+.public-header nav button{min-width:76px;min-height:40px;padding:9px 14px;border:1px solid transparent;border-radius:10px;background:transparent;color:#58647b;font-size:13px;font-weight:700;transition:transform .18s ease,background .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease}
+.public-header nav button:hover{transform:translateY(-1px);border-color:#e7eaf0;background:#f7f8fb;color:#202940}
+.public-header nav button.active{border-color:#171d35;background:#171d35;color:#fff;box-shadow:0 6px 14px rgba(23,29,53,.16)}
+.public-header nav button.public-login-link{min-width:0;min-height:40px;gap:8px;margin-left:6px;padding:5px 13px;border:1px solid #171d35;border-radius:10px;background:#171d35;color:#fff;box-shadow:0 6px 14px rgba(23,29,53,.13)}
+.public-header nav button.public-login-link:hover{transform:translateY(-1px);border-color:#d72733;background:#d72733;color:#fff;box-shadow:0 8px 18px rgba(236,48,59,.2)}
+.public-avatar-icon{width:27px;height:27px}
+.public-header nav button.public-theme-toggle{width:40px;height:40px;min-height:40px;margin-left:2px;padding:0;border-color:#e1e6ef;border-radius:10px;background:#f7f8fb;color:#59667d}
+.public-header nav button.public-theme-toggle:hover{border-color:#d7dce6;background:#eff1f6;color:#171d35}
+.public-theme-toggle>span:first-child{font-size:19px}
+.theme-dark .public-header{border-color:#303950;background:rgba(18,24,40,.92);box-shadow:0 5px 22px rgba(0,0,0,.2)}
+.theme-dark .public-header nav button{color:#bdc6d7}
+.theme-dark .public-header nav button:hover{border-color:#3a455e;background:#252d43;color:#fff}
+.theme-dark .public-header nav button.active{border-color:#ec303b;background:#ec303b;color:#fff;box-shadow:0 6px 16px rgba(236,48,59,.2)}
+.theme-dark .public-header nav button.public-login-link{border-color:#343d54;background:#252d43;color:#f4f6fb;box-shadow:none}
+.theme-dark .public-header nav button.public-login-link:hover{border-color:#ec303b;background:#ec303b;color:#fff}
+.theme-dark .public-header nav button.public-theme-toggle{border-color:#3b455e;background:#20283d;color:#e1e6f0}
+@media(max-width:780px){.public-header{height:66px;min-height:66px;padding:8px 20px}.public-brand img{width:38px;height:38px}.public-brand span{font-size:17px}.public-header nav{gap:4px}.public-header nav button{min-width:58px;min-height:36px;padding:7px 10px;font-size:12px}.public-header nav button.public-login-link{min-height:36px;margin-left:2px;padding:4px 9px}.public-avatar-icon{width:24px;height:24px}.public-header nav button.public-theme-toggle{width:36px;height:36px;min-height:36px}}
+@media(max-width:620px){.public-header{height:60px;min-height:60px;gap:8px;padding:7px 12px}.public-brand{gap:6px}.public-brand img{width:32px;height:32px}.public-brand span{font-size:13px;letter-spacing:-.55px}.public-header nav{gap:2px}.public-header nav button{min-width:0;min-height:33px;padding:6px 8px;border-radius:8px;font-size:10px}.public-header nav button.public-login-link{min-height:33px;gap:5px;margin-left:1px;padding:3px 7px}.public-avatar-icon{width:22px;height:22px}.public-avatar-label{font-size:9px}.public-header nav button.public-theme-toggle{width:33px;height:33px;min-height:33px;border-radius:8px}.public-theme-toggle>span:first-child{font-size:17px}}
+@media(max-width:370px){.public-header{padding-right:8px;padding-left:8px;gap:4px}.public-brand{gap:4px}.public-brand span{font-size:12px}.public-header nav{gap:0}.public-header nav button{padding-right:6px;padding-left:6px}.public-header nav button.public-login-link{padding-right:5px;padding-left:5px}}
+.public-header nav button.public-nav-home,.public-header nav button.public-nav-plans{min-width:76px;border:1px solid transparent}
+.public-header nav button.public-nav-home{background:#edf4ff;color:#365fae}
+.public-header nav button.public-nav-home:hover{border-color:#c9d9f7;background:#e2edff;color:#244c98}
+.public-header nav button.public-nav-home.active{border-color:#4779d4;background:linear-gradient(135deg,#4779d4,#315cae);color:#fff;box-shadow:0 6px 15px rgba(59,100,184,.24)}
+.public-header nav button.public-nav-plans{background:#fff0f1;color:#c82d39}
+.public-header nav button.public-nav-plans:hover{border-color:#f3c8cc;background:#ffe5e7;color:#aa202c}
+.public-header nav button.public-nav-plans.active{border-color:#e3323d;background:linear-gradient(135deg,#f04450,#d72d39);color:#fff;box-shadow:0 6px 15px rgba(220,48,59,.2)}
+.public-header nav button.public-login-link{width:42px;height:42px;min-height:42px;justify-content:center;margin-left:7px;padding:5px;border:1px solid #d93643;border-radius:13px;background:linear-gradient(145deg,#f24954,#d62e3a);box-shadow:0 7px 16px rgba(220,48,59,.22)}
+.public-header nav button.public-login-link:hover{transform:translateY(-2px);border-color:#bf2330;background:linear-gradient(145deg,#e43b47,#bd2632);box-shadow:0 10px 20px rgba(220,48,59,.28)}
+.public-header nav button.public-login-link.active{border-color:#a91f2b;background:linear-gradient(145deg,#c62935,#991e2a);box-shadow:0 0 0 3px rgba(236,48,59,.14)}
+.public-avatar-icon{width:29px;height:29px;border-color:rgba(255,255,255,.44);background:rgba(255,255,255,.13)}
+.public-header nav button.public-theme-toggle{width:42px;height:42px;min-height:42px;border:1px solid #dce2ec;border-radius:13px;background:linear-gradient(145deg,#fff,#f1f4f9);color:#28344d;box-shadow:0 4px 12px rgba(24,34,56,.06)}
+.public-header nav button.public-theme-toggle svg{width:19px;height:19px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s ease}
+.public-header nav button.public-theme-toggle:hover svg{transform:rotate(-12deg) scale(1.08)}
+.theme-dark .public-header nav button.public-nav-home{border-color:#33466a;background:#202f4b;color:#b9d1ff}
+.theme-dark .public-header nav button.public-nav-home:hover{border-color:#5876ac;background:#293b5e;color:#e1ebff}
+.theme-dark .public-header nav button.public-nav-home.active{border-color:#4779d4;background:linear-gradient(135deg,#4779d4,#315cae);color:#fff}
+.theme-dark .public-header nav button.public-nav-plans{border-color:#56333f;background:#352431;color:#ffb4bb}
+.theme-dark .public-header nav button.public-nav-plans:hover{border-color:#91414a;background:#442630;color:#ffdce0}
+.theme-dark .public-header nav button.public-nav-plans.active{border-color:#e3323d;background:linear-gradient(135deg,#f04450,#d72d39);color:#fff}
+.theme-dark .public-header nav button.public-login-link{border-color:#a82d3a;background:linear-gradient(145deg,#f24954,#cf2a37)}
+.theme-dark .public-header nav button.public-login-link.active{background:linear-gradient(145deg,#c62935,#991e2a)}
+.theme-dark .public-header nav button.public-theme-toggle{border-color:#3b4660;background:linear-gradient(145deg,#2b354c,#1e273a);color:#ffdc8b;box-shadow:0 4px 12px rgba(0,0,0,.16)}
+@media(max-width:780px){.public-header nav button.public-login-link,.public-header nav button.public-theme-toggle{width:36px;height:36px;min-height:36px;padding:4px}.public-header nav button.public-nav-home,.public-header nav button.public-nav-plans{min-width:58px}}
+@media(max-width:620px){.public-header nav button.public-login-link,.public-header nav button.public-theme-toggle{width:33px;height:33px;min-height:33px;border-radius:10px;margin-left:1px}.public-header nav button.public-nav-home,.public-header nav button.public-nav-plans{min-width:0}.public-avatar-icon{width:24px;height:24px}.public-header nav button.public-theme-toggle svg{width:17px;height:17px}}
+@media(max-width:780px){.public-header{position:fixed;inset:0 0 auto;width:100%;height:66px;min-height:66px}.public-layout{padding-top:66px}}
+@media(max-width:620px){.public-header{height:60px;min-height:60px}.public-layout{padding-top:60px}}

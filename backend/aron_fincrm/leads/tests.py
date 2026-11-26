@@ -78,7 +78,7 @@ class Stage3CRMCoreTests(TestCase):
 
     def test_lead_creation_and_listing(self):
         """
-        Leads may only be created from qualified financial applications.
+        Leads are created by converting customers after review.
         """
         payload = {
             "contact_name": "Vikram Sethi",
@@ -131,41 +131,6 @@ class Stage3CRMCoreTests(TestCase):
         self.assertEqual(len(history_list), 1)
         self.assertEqual(history_list[0]['new_owner'], str(self.employee.id))
         self.assertEqual(history_list[0]['reason'], "Assigned high-value lead for home loan")
-
-    def test_lead_conversion_to_customer(self):
-        """
-        Lead-to-customer conversion is retired; qualified applications are the
-        only supported source of leads.
-        """
-        lead = Lead.objects.create(
-            organization=self.org,
-            lead_code="LEAD-2002",
-            contact_name="Ramesh Gupta",
-            phone="+919822233344",
-            email="ramesh.gupta@example.com",
-            city="Jaipur",
-            state="Rajasthan",
-            source="walk_in",
-            priority="HIGH",
-            status="qualified",
-            assigned_to=self.employee,
-        )
-
-        convert_payload = {
-            "customer_type": "INDIVIDUAL",
-            "address_line1": "42 Malviya Nagar",
-            "city": "Jaipur",
-            "state": "Rajasthan",
-            "pin_code": "302017",
-            "tag": "VIP",
-        }
-        res = self.client.post(
-            reverse('lead-convert', kwargs={'pk': str(lead.id)}),
-            convert_payload,
-            format='json'
-        )
-        self.assertEqual(res.status_code, status.HTTP_410_GONE)
-        self.assertFalse(Customer.objects.filter(primary_phone="+919822233344").exists())
 
     def test_customer_lifecycle_timeline_excludes_removed_conversations(self):
         """Verify new customer timelines no longer include conversation records."""

@@ -30,11 +30,6 @@ class Interaction(models.Model):
         on_delete=models.SET_NULL,
         null=True,
     )
-    application = models.ForeignKey(
-        "applications.FinancialApplication",
-        on_delete=models.SET_NULL,
-        null=True,
-    )
     
     employee = models.ForeignKey(
         "employes.Employee",

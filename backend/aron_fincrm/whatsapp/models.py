@@ -32,7 +32,6 @@ class WhatsAppMessage(models.Model):
     class FollowupKind(models.TextChoices):
         CUSTOMER = 'customer', 'Customer'
         LEAD = 'lead', 'Lead'
-        APPLICATION = 'application', 'Application'
 
     class Status(models.TextChoices):
         PREPARED = 'PREPARED', 'Prepared in WhatsApp'

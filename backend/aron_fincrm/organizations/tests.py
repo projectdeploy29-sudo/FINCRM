@@ -7,7 +7,6 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import Manager, TeamLead
-from applications.models import FinancialApplication
 from customers.models import Customer, CustomerAssignmentHistory
 from employes.models import Employee
 from leads.models import Lead
@@ -63,16 +62,16 @@ class OrganizationIsolationTests(TestCase):
             "contoso_employee", self.org_b, self.department_c, self.team_c, "CO-E-1"
         )
 
-        self.customer_a1, self.lead_a1, self.application_a1 = self.make_work(
+        self.customer_a1, self.lead_a1 = self.make_work(
             self.org_a, self.employee_a1, "NW-E-1"
         )
-        self.customer_a2, self.lead_a2, self.application_a2 = self.make_work(
+        self.customer_a2, self.lead_a2 = self.make_work(
             self.org_a, self.employee_a2, "NW-E-2"
         )
-        self.customer_b, self.lead_b, self.application_b = self.make_work(
+        self.customer_b, self.lead_b = self.make_work(
             self.org_a, self.employee_b, "NW-W-1"
         )
-        self.customer_c, self.lead_c, self.application_c = self.make_work(
+        self.customer_c, self.lead_c = self.make_work(
             self.org_b, self.employee_c, "CO-E-1"
         )
 
@@ -167,8 +166,8 @@ class OrganizationIsolationTests(TestCase):
         lead_statuses = {
             "NW-E-1": Lead.Status.NEW,
             "NW-E-2": Lead.Status.CONTACTED,
-            "NW-W-1": Lead.Status.QUALIFIED,
-            "CO-E-1": Lead.Status.UNQUALIFIED,
+            "NW-W-1": Lead.Status.APPROVED,
+            "CO-E-1": Lead.Status.DISBURSED,
         }
         customer = Customer.objects.create(
             organization=organization,
@@ -179,7 +178,7 @@ class OrganizationIsolationTests(TestCase):
             city=f"{prefix} City",
             state=states[prefix],
             preferred_channel=Customer.PreferredChannel.PHONE,
-            status=Customer.Status.ACTIVE,
+            status=Customer.Status.CONVERTED,
             created_by=employee,
             assigned_to=employee,
         )
@@ -194,17 +193,9 @@ class OrganizationIsolationTests(TestCase):
             expected_amount="100000.00",
             created_by=employee,
             assigned_to=employee,
-            converted_customer=customer,
-        )
-        application = FinancialApplication.objects.create(
-            organization=organization,
-            application_code=f"{prefix}-APP",
             customer=customer,
-            lead=lead,
-            assigned_employee=employee,
-            requested_amount="100000.00",
         )
-        return customer, lead, application
+        return customer, lead
 
     @staticmethod
     def make_task(organization, employee, title):
@@ -238,7 +229,6 @@ class OrganizationIsolationTests(TestCase):
         for path, own_code, other_code in (
             ("/api/v1/leads/", self.lead_a1.lead_code, self.lead_c.lead_code),
             ("/api/v1/customers/", self.customer_a1.customer_code, self.customer_c.customer_code),
-            ("/api/v1/applications/", self.application_a1.application_code, self.application_c.application_code),
             ("/api/v1/tasks/", self.task_a.title, self.task_c.title),
             ("/api/v1/staff/employees/", self.employee_a1.employee_code, self.employee_c.employee_code),
             ("/api/v1/staff/managers/", self.manager_a.code, self.manager_c.code),
@@ -258,7 +248,6 @@ class OrganizationIsolationTests(TestCase):
         for path, record_id in (
             ("/api/v1/leads/", self.lead_c.id),
             ("/api/v1/customers/", self.customer_c.id),
-            ("/api/v1/applications/", self.application_c.id),
             ("/api/v1/tasks/", self.task_c.id),
             ("/api/v1/staff/employees/", self.employee_c.id),
         ):
@@ -326,7 +315,7 @@ class OrganizationIsolationTests(TestCase):
             Lead.Status.NEW, Lead.Status.CONTACTED
         })
         admin_b_pipeline = self.client_for(self.admin_b).get("/api/v1/pipeline/")
-        self.assertEqual({row["status"] for row in admin_b_pipeline.data["leads"]}, {Lead.Status.UNQUALIFIED})
+        self.assertEqual({row["status"] for row in admin_b_pipeline.data["leads"]}, {Lead.Status.DISBURSED})
 
     def test_active_role_header_cannot_elevate_employee_scope(self):
         sales_role = Role.objects.create(
@@ -472,7 +461,7 @@ class OrganizationIsolationTests(TestCase):
         self.assertEqual(contoso_teamlead.status_code, 201, contoso_teamlead.data)
         self.assertEqual(TeamLead.objects.get(code="CO-TL-NEW").organization, self.org_b)
 
-        # Qualified applications are the only supported lead source.
+        # Leads are created through customer review and conversion.
         lead_count = Lead.objects.count()
         rejected_lead = admin_a.post(
             "/api/v1/leads/",

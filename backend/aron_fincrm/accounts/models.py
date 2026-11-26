@@ -1,6 +1,12 @@
 import uuid
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
+
+
+class PasswordResetRequest(models.Model):
+    user = models.OneToOneField('accounts.User', on_delete=models.CASCADE, related_name='password_reset_request')
+    created_at = models.DateTimeField(default=timezone.now)
 
 
 class User(AbstractUser):

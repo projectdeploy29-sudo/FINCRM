@@ -35,6 +35,11 @@ class SubscriptionPlatformSettings(models.Model):
     """Persisted platform-wide subscription controls managed by FinCRM superusers."""
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     checkout_enabled = models.BooleanField(default=False)
+    invoice_issuer_name = models.CharField(max_length=255, blank=True, default='')
+    invoice_issuer_address = models.TextField(blank=True, default='')
+    invoice_issuer_gstin = models.CharField(max_length=20, blank=True, default='')
+    invoice_sac_hsn_code = models.CharField(max_length=30, blank=True, default='')
+    invoice_gst_rate_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -46,6 +51,27 @@ class SubscriptionPlatformSettings(models.Model):
 
     class Meta:
         db_table = 'subscriptions_platformsettings'
+
+
+class AIAssistantUsage(models.Model):
+    """Provider-reported token usage for one successful AI assistant response."""
+    organization = models.ForeignKey(
+        'organizations.organizations_organization', on_delete=models.CASCADE,
+        related_name='ai_assistant_usage',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ai_assistant_usage',
+    )
+    model_name = models.CharField(max_length=150, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'subscriptions_aiassistantusage'
+        ordering = ['-created_at']
 
 
 
@@ -76,6 +102,7 @@ class Payment(models.Model):
     provider = models.CharField(max_length=100)
     provider_payment_id = models.CharField(max_length=255, blank=True)
     invoice_reference = models.CharField(max_length=150, blank=True)
+    invoice_customer_gstin = models.CharField(max_length=20, blank=True, default='')
     status = models.CharField(max_length=20, choices=Status.choices)
     paid_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

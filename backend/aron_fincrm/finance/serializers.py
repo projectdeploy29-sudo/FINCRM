@@ -12,9 +12,10 @@ class RepaymentScheduleSerializer(serializers.ModelSerializer):
     label=serializers.SerializerMethodField()
     class Meta: model=RepaymentSchedule; fields='__all__'; read_only_fields=('organization',)
     def get_label(self, obj):
-        customer_name = obj.customer.full_name or obj.customer.legal_name
-        reference = obj.lead.lead_code if obj.lead_id else obj.application.application_code
-        return f'{reference} · {customer_name} · installment {obj.installment_number} · due {obj.due_date} · outstanding {obj.application.currency} {obj.outstanding_amount:,.2f}'
+        customer_name = (obj.customer.full_name or obj.customer.legal_name) if obj.customer else 'Customer'
+        reference = obj.lead.lead_code if obj.lead_id and obj.lead else ''
+        currency = (obj.lead.currency if obj.lead_id and obj.lead else None) or 'INR'
+        return f'{reference} · {customer_name} · installment {obj.installment_number} · due {obj.due_date} · outstanding {currency} {obj.outstanding_amount:,.2f}'
     def get_is_overdue(self, obj):
         return (
             obj.due_date < organization_local_date(self.context.get('request'))
@@ -33,14 +34,15 @@ class RepaymentPaymentSerializer(serializers.ModelSerializer):
         request=self.context['request']; user=request.user
         org=get_user_organization(user,request)
         if not org or schedule.organization_id != org.id: raise serializers.ValidationError('Schedule must belong to your organization.')
-        role=get_user_role_context(user,request); level=role['hierarchy_level']; employee=getattr(user,'employee',None); app=schedule.application
-        if level<50 and (not employee or app.assigned_employee_id!=employee.id): raise serializers.ValidationError('This loan must be assigned to you.')
+        role=get_user_role_context(user,request); level=role['hierarchy_level']; employee=getattr(user,'employee',None); lead=schedule.lead
+        if not lead: raise serializers.ValidationError('This schedule is not linked to a lead.')
+        if level<50 and (not employee or lead.assigned_to_id!=employee.id): raise serializers.ValidationError('This loan must be assigned to you.')
         if 50<=level<70:
             profile=user.teamlead_profiles.first() if hasattr(user,'teamlead_profiles') else None
-            if not profile or not app.assigned_employee_id or not profile.teams.filter(pk=app.assigned_employee.team_id).exists(): raise serializers.ValidationError('This loan must belong to a team you lead.')
+            if not profile or not lead.assigned_to_id or not profile.teams.filter(pk=lead.assigned_to.team_id).exists(): raise serializers.ValidationError('This loan must belong to a team you lead.')
         if 70<=level<90:
             manager=user.manager_set.first() if hasattr(user,'manager_set') else None
-            if not manager or not app.assigned_employee_id or not manager.managed_departments.filter(pk=app.assigned_employee.department_id).exists(): raise serializers.ValidationError('This loan must belong to a department you manage.')
+            if not manager or not lead.assigned_to_id or not manager.managed_departments.filter(pk=lead.assigned_to.department_id).exists(): raise serializers.ValidationError('This loan must belong to a department you manage.')
         try: amount=Decimal(str(self.initial_data.get('amount','0')))
         except (InvalidOperation,TypeError): raise serializers.ValidationError('Enter a valid payment amount.')
         if amount<=0: raise serializers.ValidationError('Payment amount must be greater than zero.')

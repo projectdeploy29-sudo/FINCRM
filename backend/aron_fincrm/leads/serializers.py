@@ -3,7 +3,6 @@ from django.db import transaction
 from rest_framework import serializers
 from leads.models import Lead, LeadAssignmentHistory, LeadStatusHistory
 from employes.models import Employee
-from customers.models import Customer, CustomerTag
 from organizations.tenant import get_user_organization, get_user_role_context
 
 
@@ -59,11 +58,8 @@ class LeadSerializer(serializers.ModelSerializer):
     address = serializers.SerializerMethodField(read_only=True)
     portal_username = serializers.CharField(source='portal_user.username', read_only=True, allow_null=True)
     has_portal_account = serializers.SerializerMethodField(read_only=True)
-    can_create_portal_account = serializers.SerializerMethodField(read_only=True)
     created_by_name = serializers.SerializerMethodField(read_only=True)
     customer_name = serializers.SerializerMethodField(read_only=True)
-    application_code = serializers.CharField(source='application.application_code', read_only=True, allow_null=True)
-    application_status = serializers.CharField(source='application.status', read_only=True, allow_null=True)
 
     class Meta:
         model = Lead
@@ -84,15 +80,17 @@ class LeadSerializer(serializers.ModelSerializer):
             'assigned_to',
             'assigned_to_name',
             'assignment_reason',
-            'portal_username', 'has_portal_account', 'can_create_portal_account',
-            'converted_customer',
-            'customer', 'customer_name', 'application', 'application_code', 'application_status',
+            'portal_username', 'has_portal_account',
+            'customer', 'customer_name', 'requested_amount', 'approved_amount', 'disbursed_amount',
+            'upfront_deductions_amount', 'net_disbursed_amount', 'annual_interest_rate',
+            'interest_calculation_method', 'loan_tenure_months', 'monthly_repayment_amount',
+            'next_payment_due_date', 'disbursed_at', 'completed_at',
             'created_by',
             'created_by_name',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_by', 'converted_customer', 'customer', 'application', 'customer_name', 'application_code', 'application_status', 'status', 'portal_username', 'has_portal_account', 'can_create_portal_account', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_by', 'customer', 'customer_name', 'status', 'portal_username', 'has_portal_account', 'created_at', 'updated_at', 'approved_amount', 'disbursed_amount', 'upfront_deductions_amount', 'net_disbursed_amount', 'annual_interest_rate', 'interest_calculation_method', 'loan_tenure_months', 'monthly_repayment_amount', 'next_payment_due_date', 'disbursed_at', 'completed_at']
 
     def validate(self,attrs):
         req=self.context['request']; user=req.user
@@ -135,16 +133,8 @@ class LeadSerializer(serializers.ModelSerializer):
 
     def get_has_portal_account(self,obj): return bool(obj.portal_user_id)
 
-    def get_can_create_portal_account(self, obj):
-        return bool(
-            not obj.portal_user_id
-            and obj.status == Lead.Status.QUALIFIED
-            and obj.application_id
-            and obj.application.status in ('disbursed', 'completed')
-        )
-
     def get_customer_name(self, obj):
-        return ((obj.customer.full_name or obj.customer.legal_name) if obj.customer_id else '')
+        return (obj.customer.full_name or obj.customer.legal_name) if obj.customer_id else ''
 
     def get_created_by_name(self, obj):
         if obj.created_by and obj.created_by.user:
@@ -197,15 +187,14 @@ class LeadSerializer(serializers.ModelSerializer):
 
 class LeadPortalSerializer(serializers.ModelSerializer):
     customer_name = serializers.SerializerMethodField()
-    application_code = serializers.CharField(source='application.application_code', read_only=True, allow_null=True)
 
     class Meta:
         model = Lead
-        fields = ['id', 'lead_code', 'contact_name', 'phone', 'email', 'customer_name', 'application_code', 'status', 'expected_amount', 'currency', 'created_at']
+        fields = ['id', 'lead_code', 'contact_name', 'phone', 'email', 'customer_name', 'status', 'expected_amount', 'currency', 'created_at']
         read_only_fields = fields
 
     def get_customer_name(self, obj):
-        return ((obj.customer.full_name or obj.customer.legal_name) if obj.customer_id else obj.contact_name)
+        return (obj.customer.full_name or obj.customer.legal_name) if obj.customer_id else obj.contact_name
 
 
 class LeadAssignSerializer(serializers.Serializer):
@@ -231,23 +220,3 @@ class LeadAssignSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError('Select at least one staff assignment.')
         return attrs
-
-
-class LeadConvertSerializer(serializers.Serializer):
-    customer_type = serializers.ChoiceField(
-        choices=Customer.CustomerType.choices,
-        default=Customer.CustomerType.INDIVIDUAL
-    )
-    legal_name = serializers.CharField(required=False, allow_blank=True, default="")
-    address_line1 = serializers.CharField(required=False, allow_blank=True, default="")
-    address_line2 = serializers.CharField(required=False, allow_blank=True, default="")
-    city = serializers.CharField(required=False, allow_blank=True, default="")
-    state = serializers.CharField(required=False, allow_blank=True, default="")
-    pin_code = serializers.CharField(required=False, allow_blank=True, default="")
-    business_category = serializers.CharField(required=False, allow_blank=True, default="")
-    segment = serializers.CharField(required=False, allow_blank=True, default="Retail")
-    tag = serializers.ChoiceField(
-        choices=CustomerTag.Tag.choices,
-        required=False,
-        default=CustomerTag.Tag.GENERAL
-    )

@@ -1,4 +1,4 @@
-const configuredApiRoot = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
+const configuredApiRoot = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').trim().replace(/\/+$/, '')
 export const API_ROOT = configuredApiRoot.endsWith('/api/v1') ? configuredApiRoot : `${configuredApiRoot}/api/v1`
 let refreshPromise = null
 
@@ -48,30 +48,39 @@ export function createApi(token, onUnauthorized = () => {}, activeRole = '', onT
   }
 
   async function request(path, options = {}) {
+    const { responseType, ...fetchOptions } = options
     const headers = new Headers(options.headers || {})
     if (token) headers.set('Authorization', `Bearer ${token}`)
     if (activeRole) headers.set('X-Active-Role', activeRole)
     if (options.body !== undefined) headers.set('Content-Type', 'application/json')
     const requestUrl = resolveApiUrl(path)
-    let response = await fetch(requestUrl, { ...options, headers })
+    let response = await fetch(requestUrl, { ...fetchOptions, headers })
     if (response.status === 401) {
       const tokens = await refreshSession()
       if (tokens?.access) {
         headers.set('Authorization', `Bearer ${tokens.access}`)
-        response = await fetch(requestUrl, { ...options, headers })
+        response = await fetch(requestUrl, { ...fetchOptions, headers })
       }
       if (response.status === 401) onUnauthorized()
     }
+    if (response.ok && responseType === 'blob') return response.blob()
     const result = await response.json().catch(() => ({}))
     if (!response.ok) {
-      const detail = result.detail || Object.entries(result).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`).join(' · ') || `Request failed (${response.status})`
-      throw new Error(`Request failed (${response.status}) for ${options.method || 'GET'} ${requestUrl}${detail ? `: ${detail}` : ''}`)
+      const fieldErrors = Object.entries(result).filter(([key]) => key !== 'detail').map(([, value]) => Array.isArray(value) ? value.join(', ') : String(value)).filter(Boolean)
+      const detail = result.detail || fieldErrors.join(' · ')
+      const friendlyFallback = response.status === 403
+        ? 'You do not have permission to do that.'
+        : response.status === 404
+          ? 'We could not find what you requested.'
+          : 'Something went wrong. Please try again.'
+      throw new Error(detail || friendlyFallback)
     }
     return result
   }
   return {
     request,
     get: (path) => request(path),
+    download: (path) => request(path, { responseType: 'blob' }),
     getAll: async (path) => {
       let result = await request(path); const items = [...(Array.isArray(result) ? result : result.results || [])]
       let next = !Array.isArray(result) ? result.next : null; let pages = 1

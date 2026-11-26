@@ -45,20 +45,11 @@ class Command(BaseCommand):
 
             # Leads
             ("leads", "view", "leads:view", "View leads pipeline"),
-            ("leads", "create", "leads:create", "Capture/create new leads"),
+            ("leads", "create", "leads:create", "Convert reviewed customers into leads"),
             ("leads", "edit", "leads:edit", "Edit lead details and priority"),
             ("leads", "assign", "leads:assign", "Assign leads to team members"),
-            ("leads", "convert", "leads:convert", "Convert qualified leads to customers"),
+            ("leads", "convert", "leads:convert", "Convert customers under review into leads"),
             ("leads", "delete", "leads:delete", "Delete leads"),
-
-            # Applications (Loans & Insurance)
-            ("applications", "view", "applications:view", "View financial applications"),
-            ("applications", "create", "applications:create", "Submit loan/insurance application"),
-            ("applications", "edit", "applications:edit", "Modify application info"),
-            ("applications", "review", "applications:review", "Review financial application details"),
-            ("applications", "approve", "applications:approve", "Approve financial application"),
-            ("applications", "disburse", "applications:disburse", "Mark application disbursed"),
-            ("applications", "reject", "applications:reject", "Reject application"),
 
             # Finance & Repayments
             ("finance", "view_schedules", "finance:view_schedules", "View repayment EMI/premium schedules"),
@@ -100,6 +91,8 @@ class Command(BaseCommand):
             if created:
                 created_perms += 1
 
+        Permission.objects.filter(module="applications").delete()
+
         self.stdout.write(self.style.SUCCESS(f"Seeded {len(permissions_data)} permissions ({created_perms} newly created)."))
 
         # Define System Roles
@@ -122,7 +115,6 @@ class Command(BaseCommand):
                     "employees:view", "employees:create", "employees:edit",
                     "customers:view", "customers:create", "customers:edit", "customers:change_status",
                     "leads:view", "leads:create", "leads:edit", "leads:assign", "leads:convert",
-                    "applications:view", "applications:create", "applications:edit", "applications:review", "applications:approve", "applications:reject",
                     "finance:view_schedules", "finance:record_payment", "finance:verify_payment",
                     "tasks:view", "tasks:create", "tasks:assign", "tasks:update",
                     "followups:view", "followups:create", "followups:update",
@@ -139,8 +131,6 @@ class Command(BaseCommand):
                     "employees:view",
                     "customers:view", "customers:create", "customers:edit", "customers:change_status",
                     "leads:view", "leads:create", "leads:edit", "leads:assign", "leads:convert",
-                    "applications:view", "applications:create", "applications:edit",
-                    "applications:review", "applications:approve", "applications:disburse", "applications:reject",
                     "finance:view_schedules", "finance:manage_schedules", "finance:record_payment", "finance:verify_payment",
                     "tasks:view", "tasks:create", "tasks:assign", "tasks:update",
                     "followups:view", "followups:create", "followups:update",
@@ -150,12 +140,11 @@ class Command(BaseCommand):
             {
                 "name": "General Employee",
                 "code": "general_employee",
-                "description": "Customer sourcing, lead management, and application follow-ups",
+                "description": "Customer sourcing, lead management, and customer follow-ups",
                 "is_system_role": True,
                 "permissions": [
                     "customers:view", "customers:create", "customers:edit", "customers:change_status",
                     "leads:view", "leads:create", "leads:edit", "leads:convert",
-                    "applications:view", "applications:create", "applications:edit",
                     "finance:view_schedules", "finance:record_payment",
                     "tasks:view", "tasks:update",
                     "followups:view", "followups:create", "followups:update",

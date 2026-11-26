@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { unwrapList } from '../api'
+import useSidePanelEntrance from './useSidePanelEntrance'
 
 function optionLabel(item, field) {
   if (field.optionLabelField && item[field.optionLabelField]) {
@@ -7,7 +8,7 @@ function optionLabel(item, field) {
     const secondary = field.optionLabelSecondaryField && item[field.optionLabelSecondaryField]
     return secondary ? `${primary} · ${secondary}` : primary
   }
-  return item.label || item.name || item.full_name || item.user_details?.full_name || item.user_details?.username || item.assigned_to_name || item.assigned_employee_name || item.customer_code || item.application_code || item.employee_code || item.code || item.username || item.id
+  return item.label || item.name || item.full_name || item.user_details?.full_name || item.user_details?.username || item.assigned_to_name || item.assigned_employee_name || item.customer_code || item.employee_code || item.code || item.username || item.id
 }
 
 function datetimeLocalValue(value, timeZone) {
@@ -41,11 +42,7 @@ export default function RecordForm({ fields, initial = {}, api, timezone = 'UTC'
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const dialogRef = useRef(null)
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (dialog && !dialog.open) dialog.showModal()
-    return () => { if (dialog?.open) dialog.close() }
-  }, [])
+  const entered = useSidePanelEntrance(dialogRef)
   useEffect(() => {
     let live = true
     Promise.all(fields.filter((field) => field.optionsEndpoint).map(async (field) => {
@@ -120,13 +117,15 @@ export default function RecordForm({ fields, initial = {}, api, timezone = 'UTC'
     if (field.type === 'checkbox') return <input id={field.name} type="checkbox" checked={Boolean(value)} onChange={(event) => change(field, event.target.checked)} />
     return <input id={field.name} type={field.type || 'text'} value={value} required={field.required} onChange={(event) => change(field, event.target.value)} />
   }
-  return <dialog ref={dialogRef} aria-labelledby="record-form-title" onCancel={(event) => { event.preventDefault(); onCancel() }}>
+  return <dialog ref={dialogRef} className={`side-panel-dialog record-form-side-panel${entered ? ' is-entered' : ''}`} aria-labelledby="record-form-title" onCancel={(event) => { event.preventDefault(); onCancel() }}>
     <div className="record-modal-header"><h3 id="record-form-title">{title}</h3><button type="button" className="modal-close" aria-label="Close form" onClick={onCancel} disabled={busy}>×</button></div>
     <form onSubmit={submit}>
       {fields.filter((field) => !field.when || values[field.when.field] === field.when.value).map((field) => <p key={field.name}><label htmlFor={field.name}>{field.label || field.name.replaceAll('_', ' ')}{field.type === 'datetime-local' ? ` (${timezone})` : ''}{field.required ? ' *' : ''} {renderField(field)}</label>{field.helpText && <small className="field-help">{field.helpText}</small>}</p>)}
       {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={busy}>{busy ? 'Saving…' : submitLabel}</button>
-      <button type="button" onClick={onCancel} disabled={busy}>Cancel</button>
+      <div className="record-form-actions">
+        <button type="button" onClick={onCancel} disabled={busy}>Cancel</button>
+        <button type="submit" disabled={busy}>{busy ? 'Saving…' : submitLabel}</button>
+      </div>
     </form>
   </dialog>
 }

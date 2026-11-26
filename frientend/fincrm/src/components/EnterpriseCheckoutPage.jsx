@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { API_ROOT, readApiResponse, resolveApiUrl } from '../api'
+import { readApiResponse, resolveApiUrl } from '../api'
+import BrandFooter from './BrandFooter'
 
 async function getCheckoutConstructor() {
   if (window.Razorpay) return window.Razorpay
@@ -34,6 +35,7 @@ export default function EnterpriseCheckoutPage() {
     }
   })
   const { checkoutId, token } = link
+  const invalidLink = !checkoutId || !token
   const [checkout, setCheckout] = useState(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -45,10 +47,7 @@ export default function EnterpriseCheckoutPage() {
 
   useEffect(() => {
     let active = true
-    if (!checkoutId || !token) {
-      setError('This Enterprise checkout link is invalid or incomplete.')
-      return () => { active = false }
-    }
+    if (invalidLink) return () => { active = false }
     fetch(resolveApiUrl(checkoutDetailsUrl))
       .then(async (response) => {
         const data = await readApiResponse(response)
@@ -58,11 +57,10 @@ export default function EnterpriseCheckoutPage() {
       .then((data) => { if (active) setCheckout(data) })
       .catch((exception) => { if (active) setError(exception.message) })
     return () => { active = false }
-  }, [checkoutDetailsUrl, checkoutId, token])
+  }, [checkoutDetailsUrl, checkoutId, invalidLink, token])
 
   useEffect(() => {
     if (!checkout?.status || (!paymentSubmitted && !['paid', 'completed', 'activated'].includes(checkout.status))) return undefined
-    if (checkout.status === 'paid') setMessage('Payment confirmed. Check your email for the secure organization registration link. The link expires after 24 hours.')
     const timer = window.setInterval(async () => {
       try {
         const response = await fetch(resolveApiUrl(checkoutDetailsUrl))
@@ -85,14 +83,14 @@ export default function EnterpriseCheckoutPage() {
       const payment = new Razorpay({
         key: checkout.key_id,
         ...(checkout.payment_mode === 'recurring' ? { subscription_id: checkout.subscription_id } : { order_id: checkout.order_id, amount: checkout.amount, currency: checkout.currency }),
-        name: 'FINCRM',
+        name: 'Auron FIN CRM',
         description: `Enterprise · ${checkout.billing_cycle === 'YEARLY' ? 'yearly' : 'monthly'} plan`,
         prefill: { email: checkout.email },
         theme: { color: '#1764e8' },
         handler: async (result) => {
           try {
             if (checkout.payment_mode === 'recurring') {
-              setMessage('Authorization was submitted. FINCRM is waiting for Razorpay confirmation before sending your registration link.')
+              setMessage('Authorization was submitted. Auron FIN CRM is waiting for Razorpay confirmation before sending your registration link.')
               setCheckout({ ...checkout, status: 'awaiting_webhook' })
               setPaymentSubmitted(true)
               setBusy(false)
@@ -128,8 +126,8 @@ export default function EnterpriseCheckoutPage() {
     }
   }
 
-  return <main className="login-page"><section className="login-card" aria-labelledby="enterprise-checkout-title">
-    <h1 id="enterprise-checkout-title">FINCRM Enterprise checkout</h1>
+  return <main className="login-page checkout-page-layout"><section className="login-card" aria-labelledby="enterprise-checkout-title">
+    <h1 id="enterprise-checkout-title">Auron FIN CRM Enterprise checkout</h1>
     {checkout && !paymentSubmitted && ['pending', 'pending_authorization'].includes(checkout.status) && <>
       <p>Complete the agreed custom price for the Enterprise plan.</p>
       <p><strong>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: checkout.currency }).format(checkout.amount / 100)}</strong> per {checkout.billing_cycle === 'YEARLY' ? 'year' : 'month'}</p>
@@ -143,9 +141,9 @@ export default function EnterpriseCheckoutPage() {
     </>}
     {(checkout?.status === 'awaiting_webhook' || (paymentSubmitted && checkout?.status === 'pending')) && <p role="status">Waiting for secure confirmation from Razorpay. You can keep this page open.</p>}
     {checkout?.status === 'paid' && <p role="status">Payment confirmed. Your secure registration link has been sent by email.</p>}
-    {error && <p role="alert">{error}</p>}
+    {(error || invalidLink) && <p role="alert">{error || 'This Enterprise checkout link is invalid or incomplete.'}</p>}
     {message && <p role="status">{message}</p>}
-    {!checkout && !error && !message && <p>Loading secure checkout…</p>}
-    {message && <p>Once payment is verified, FINCRM will email the next registration step or activate the associated organization.</p>}
-  </section></main>
+    {!checkout && !error && !invalidLink && !message && <p>Loading secure checkout…</p>}
+    {message && <p>Once payment is verified, Auron FIN CRM will email the next registration step or activate the associated organization.</p>}
+  </section><BrandFooter className="checkout-brand-footer" /></main>
 }

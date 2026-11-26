@@ -91,14 +91,6 @@ class Task(models.Model):
         related_name="tasks"
     )
 
-    related_application = models.ForeignKey(
-        "applications.FinancialApplication",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="tasks"
-    )
-
     priority = models.CharField(
         max_length=20,
         choices=Priority.choices,
@@ -276,86 +268,7 @@ class LeadFollowUp(models.Model):
         on_delete=models.PROTECT,
         null=True,
         blank=True,
-        
-    )
 
-    followup_type = models.CharField(
-        max_length=20,
-        choices=FollowUpType.choices
-    )
-
-    scheduled_at = models.DateTimeField()
-
-    status = models.CharField(
-        max_length=20,
-        choices=Status.choices,
-        default=Status.PENDING
-    )
-
-    outcome = models.TextField(
-        blank=True,
-        null=True
-    )
-
-    notes = models.TextField(
-        blank=True,
-        null=True
-    )
-
-    meeting_duration_minutes = models.PositiveSmallIntegerField(default=30)
-    meeting_location = models.CharField(max_length=255, blank=True)
-    meeting_url = models.URLField(blank=True)
-    invitee_emails = models.TextField(blank=True, help_text="Comma-separated invitee email addresses")
-
-    completed_at = models.DateTimeField(
-        null=True,
-        blank=True
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"{self.followup_type} - {self.scheduled_at}"
-
-class applicationFollowUp(models.Model):
-
-    class FollowUpType(models.TextChoices):
-        CALL = "CALL", "Call"
-        MEETING = "MEETING", "Meeting"
-        VISIT = "VISIT", "Visit"
-        EMAIL = "EMAIL", "Email"
-        OTHER = "OTHER", "Other"
-
-    class Status(models.TextChoices):
-        PENDING = "PENDING", "Pending"
-        COMPLETED = "COMPLETED", "Completed"
-        CANCELLED = "CANCELLED", "Cancelled"
-
-    organization = models.ForeignKey(
-        "organizations.organizations_organization",
-        on_delete=models.CASCADE,
-        related_name="application_followups"
-    )
-
-    application = models.ForeignKey(
-        "applications.FinancialApplication",
-        on_delete=models.CASCADE,
-        related_name="followups",
-    )
-
-    assigned_to = models.ForeignKey('employes.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_application_followups')
-    created_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_application_followups')
-    title = models.CharField(max_length=255, blank=True)
-    description = models.TextField(blank=True)
-    purpose = models.CharField(max_length=255, blank=True)
-
-    created_by = models.ForeignKey(
-        "employes.Employee",
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        
     )
 
     followup_type = models.CharField(
@@ -400,4 +313,3 @@ class applicationFollowUp(models.Model):
 
 # Aliases for consistent naming
 CustomerFollowUp = CostomerFollowUp
-ApplicationFollowUp = applicationFollowUp

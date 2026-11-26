@@ -1,0 +1,24 @@
+.privacy-policy-page{flex:1;width:min(100%,1180px);margin:0 auto;padding:54px clamp(18px,5vw,72px) 72px;color:#202940}
+.privacy-policy-heading{position:relative;padding:34px clamp(22px,4vw,48px);border:1px solid #dfe5ef;border-radius:20px;background:radial-gradient(ellipse at 96% 0%,rgba(236,48,59,.11),transparent 42%),linear-gradient(130deg,#fff,#f7f9fc);box-shadow:0 16px 42px rgba(23,29,53,.07)}
+.privacy-policy-heading>span,.privacy-contact-card>p{color:#e2323d;font-size:10px;font-weight:850;letter-spacing:.15em}
+.privacy-policy-heading h1{margin:12px 0 8px;color:#171d35;font-size:clamp(36px,5vw,54px);letter-spacing:-.06em;line-height:1}
+.privacy-policy-heading p{max-width:640px;margin:0;color:#6f7b91;font-size:15px;line-height:1.65}
+.privacy-policy-heading small{display:block;margin-top:13px;color:#8a94a5;font-size:11px}
+.privacy-policy-heading button{position:absolute;right:clamp(22px,4vw,48px);bottom:30px;border-color:#e1e6ef;background:#fff;color:#3f4a60;font-size:12px;font-weight:700}
+.privacy-policy-content{max-width:850px;margin:30px auto 0;padding:28px clamp(20px,4vw,42px);border:1px solid #e4e8ef;border-radius:18px;background:#fff;box-shadow:0 10px 32px rgba(23,29,53,.045)}
+.privacy-policy-intro{margin:0 0 20px;padding:16px 18px;border-left:3px solid #ec303b;border-radius:0 10px 10px 0;background:#fff6f6;color:#56627a;font-size:13px;line-height:1.75}
+.privacy-policy-section{display:grid;grid-template-columns:35px minmax(0,1fr);gap:14px;padding:22px 0;border-bottom:1px solid #edf0f4}
+.privacy-policy-section>span{display:grid;width:30px;height:30px;place-items:center;border:1px solid #f2d3d6;border-radius:9px;background:#fff3f4;color:#d8323d;font-size:9px;font-weight:850}
+.privacy-policy-section h2,.privacy-contact-card h2{margin:2px 0 9px;color:#202940;font-size:17px;letter-spacing:-.025em}
+.privacy-policy-section p,.privacy-policy-section li{color:#657188;font-size:12px;line-height:1.75}
+.privacy-policy-section p{margin:0 0 9px}.privacy-policy-section p:last-child{margin-bottom:0}
+.privacy-policy-section ul{display:grid;gap:6px;margin:9px 0 0;padding-left:19px}
+.privacy-contact-card{margin-top:24px;padding:22px;border:1px solid #e8dadd;border-radius:13px;background:linear-gradient(125deg,#fff8f8,#f8f9fc)}
+.privacy-contact-card>p{margin:0 0 8px}.privacy-contact-card h2{margin:0 0 13px;font-size:21px}
+.privacy-contact-card>div{display:flex;flex-wrap:wrap;gap:8px 18px}.privacy-contact-card a{color:#b62834;font-size:12px;font-weight:700;text-decoration:none}.privacy-contact-card a:hover{text-decoration:underline;text-underline-offset:3px}
+.privacy-contact-card address{max-width:600px;margin-top:14px;color:#738097;font-size:11px;font-style:normal;line-height:1.7}
+.theme-dark .privacy-policy-page{color:#e8edf6}.theme-dark .privacy-policy-heading,.theme-dark .privacy-policy-content{border-color:#313b53;background:#1a2235;color:#edf1fa;box-shadow:0 14px 36px rgba(0,0,0,.2)}
+.theme-dark .privacy-policy-heading h1,.theme-dark .privacy-policy-section h2,.theme-dark .privacy-contact-card h2{color:#f1f4fa}.theme-dark .privacy-policy-heading p,.theme-dark .privacy-policy-section p,.theme-dark .privacy-policy-section li,.theme-dark .privacy-contact-card address{color:#adb8cb}
+.theme-dark .privacy-policy-heading button{border-color:#3c4660;background:#252e44;color:#e2e7f0}.theme-dark .privacy-policy-intro{border-color:#e34b56;background:#33252f;color:#d3d9e5}.theme-dark .privacy-policy-section{border-color:#313b53}.theme-dark .privacy-contact-card{border-color:#573a43;background:linear-gradient(125deg,#30232f,#20283c)}
+@media(max-width:620px){.privacy-policy-page{padding:24px 14px 45px}.privacy-policy-heading{padding:25px 19px 65px;border-radius:15px}.privacy-policy-heading button{right:18px;bottom:16px}.privacy-policy-heading p{font-size:13px}.privacy-policy-content{margin-top:16px;padding:16px;border-radius:14px}.privacy-policy-section{grid-template-columns:28px minmax(0,1fr);gap:10px;padding:18px 0}.privacy-policy-section>span{width:26px;height:26px}.privacy-policy-section h2{font-size:15px}.privacy-policy-section p,.privacy-policy-section li{font-size:11px}.privacy-contact-card{padding:17px}.privacy-contact-card>div{display:grid;gap:10px}}
+@media(prefers-reduced-motion:reduce){.privacy-policy-heading button,.privacy-contact-card a{transition:none}}

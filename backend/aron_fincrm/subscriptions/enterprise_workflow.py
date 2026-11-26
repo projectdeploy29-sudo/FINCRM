@@ -42,48 +42,77 @@ def _send_message(subject, body, recipient, *, html_message=None):
 def send_inquiry_notifications(inquiry, *, only_unsent=True):
     """Attempt each inquiry notification once; failed sends remain retryable by an admin."""
     if not only_unsent or not inquiry.customer_email_sent:
+        customer_subject = 'Thank you for your Auron FIN CRM Enterprise inquiry'
+        customer_body = (
+            f'Hello {inquiry.full_name},\n\n'
+            f'Thank you for contacting Auron FIN CRM about an Enterprise plan for {inquiry.organization_name}. '
+            'We have received your inquiry and our team will review your requirements and contact you to discuss the next steps.\n\n'
+            'There is nothing else you need to do right now. We will follow up using the contact details you provided.\n\n'
+            'Kind regards,\nAuron FIN CRM Enterprise Team · Alpha Auron'
+        )
+        customer_html = (
+            '<div style="margin:0;background:#f4f6fa;padding:32px 16px;font-family:Arial,sans-serif;color:#202940">'
+            '<div style="max-width:600px;margin:0 auto;border:1px solid #e3e7ef;border-radius:12px;background:#fff;overflow:hidden">'
+            '<div style="padding:20px 26px;background:#171d35;color:#fff;font-size:20px;font-weight:700">AURON FIN CRM</div>'
+            '<div style="padding:28px 26px">'
+            '<p style="margin:0 0 8px;color:#ec303b;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase">Enterprise inquiry</p>'
+            '<h1 style="margin:0 0 16px;font-size:23px;color:#171d35">Thank you for getting in touch</h1>'
+            f'<p style="margin:0 0 14px;line-height:1.6">Hello {escape(inquiry.full_name)},</p>'
+            f'<p style="margin:0 0 14px;line-height:1.6">We have received your inquiry about an Enterprise plan for <strong>{escape(inquiry.organization_name)}</strong>.</p>'
+            '<p style="margin:0 0 14px;line-height:1.6">Our team will review your requirements and contact you to discuss the next steps.</p>'
+            '<p style="margin:0;line-height:1.6;color:#68758b">There is nothing else you need to do right now. We will follow up using the contact details you provided.</p>'
+            '<p style="margin:24px 0 0;line-height:1.6">Kind regards,<br><strong>Auron FIN CRM Enterprise Team · Alpha Auron</strong></p>'
+            '</div></div></div>'
+        )
         inquiry.customer_email_sent = _send_message(
-            'We received your FINCRM enterprise inquiry',
-            (
-                f'Hello {inquiry.full_name},\n\n'
-                f'We received your enterprise inquiry for {inquiry.organization_name}. '
-                'Our team will contact you soon.\n\nFINCRM'
-            ),
+            customer_subject,
+            customer_body,
             inquiry.email,
-            html_message=(
-                f'<p>Hello {escape(inquiry.full_name)},</p>'
-                f'<p>We received your Enterprise inquiry for <strong>{escape(inquiry.organization_name)}</strong>. '
-                'Our team will contact you soon.</p><p>FINCRM</p>'
-            ),
+            html_message=customer_html,
         )
 
     if not only_unsent or not inquiry.admin_email_sent:
         admin_email = settings.ENTERPRISE_INQUIRY_ADMIN_EMAIL
         details = [
-            'A new FINCRM Enterprise inquiry has arrived.',
-            f'Name: {inquiry.full_name}',
-            f'Email: {inquiry.email}',
-            f'Phone: {inquiry.phone}',
-            f'Organization: {inquiry.organization_name}',
-            f'Website: {inquiry.website or "—"}',
-            f'LinkedIn: {inquiry.linkedin_url or "—"}',
-            f'Notes / requirements: {inquiry.note or "—"}',
+            ('Contact name', inquiry.full_name),
+            ('Email address', inquiry.email),
+            ('Phone number', inquiry.phone),
+            ('Organization', inquiry.organization_name),
+            ('Website', inquiry.website),
+            ('LinkedIn profile', inquiry.linkedin_url),
+            ('Requirements', inquiry.note),
         ]
+        admin_body = '\n'.join([
+            'A new request for an Auron FIN CRM Enterprise plan has been submitted.',
+            'Please review the details below and follow up with the contact.',
+            '',
+            *[f'{label}: {value or "—"}' for label, value in details],
+            '',
+            'This inquiry is available in the Auron FIN CRM Enterprise management workspace.',
+        ])
+        admin_html = (
+            '<div style="margin:0;background:#f4f6fa;padding:32px 16px;font-family:Arial,sans-serif;color:#202940">'
+            '<div style="max-width:650px;margin:0 auto;border:1px solid #e3e7ef;border-radius:12px;background:#fff;overflow:hidden">'
+            '<div style="padding:20px 26px;background:#171d35;color:#fff;font-size:20px;font-weight:700">AURON FIN CRM <span style="color:#ff858d;font-size:12px;font-weight:600">Enterprise</span></div>'
+            '<div style="padding:26px">'
+            '<p style="margin:0 0 8px;color:#ec303b;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase">New inquiry</p>'
+            '<h1 style="margin:0 0 12px;font-size:22px;color:#171d35">Enterprise plan request</h1>'
+            '<p style="margin:0 0 18px;line-height:1.6;color:#68758b">A prospective customer submitted a request. Review the information and follow up with the contact.</p>'
+            '<table role="presentation" style="width:100%;border-collapse:collapse">'
+            + ''.join(
+                '<tr>'
+                f'<th scope="row" style="width:160px;padding:10px 12px;border:1px solid #e8ebf1;background:#f8f9fb;text-align:left;vertical-align:top;font-size:12px;color:#5d6a80">{escape(label)}</th>'
+                f'<td style="padding:10px 12px;border:1px solid #e8ebf1;vertical-align:top;font-size:13px;line-height:1.5;overflow-wrap:anywhere">{escape(value or "—")}</td>'
+                '</tr>'
+                for label, value in details
+            )
+            + '</table>'
+            + '<p style="margin:18px 0 0;line-height:1.6;color:#68758b">This inquiry is available in the Auron FIN CRM Enterprise management workspace.</p>'
+            + '</div></div></div>'
+        )
         inquiry.admin_email_sent = _send_message(
-            'FINCRM enterprise plan inquiry', '\n'.join(details), admin_email,
-            html_message=(
-                '<h2>A new FINCRM Enterprise inquiry has arrived</h2><dl>'
-                + ''.join(
-                    f'<dt><strong>{escape(label)}</strong></dt><dd>{escape(value or "—")}</dd>'
-                    for label, value in (
-                        ('Name', inquiry.full_name), ('Email', inquiry.email),
-                        ('Phone', inquiry.phone), ('Organization', inquiry.organization_name),
-                        ('Website', inquiry.website), ('LinkedIn', inquiry.linkedin_url),
-                        ('Notes / requirements', inquiry.note),
-                    )
-                )
-                + '</dl>'
-            ),
+            'New Auron FIN CRM Enterprise plan inquiry', admin_body, admin_email,
+            html_message=admin_html,
         )
 
     inquiry.save(update_fields=['customer_email_sent', 'admin_email_sent'])
@@ -169,13 +198,13 @@ def initiate_enterprise_checkout(inquiry_id):
         ])
 
         body = (
-            'FinCRM has prepared the Enterprise payment checkout following your discussion with our team.\n\n'
+            'Auron FIN CRM has prepared the Enterprise payment checkout following your discussion with our team.\n\n'
             f'Agreed amount: INR {checkout.amount} per {checkout.get_billing_cycle_display().lower()}\n\n'
             'Use this secure link within 48 hours to complete payment. After payment is verified, '
             'we will send a one-time organization registration link.\n'
             f'{_checkout_email(checkout, raw_token)}\n'
         )
-        if not _send_message('Your FINCRM Enterprise payment checkout', body, inquiry.email):
+        if not _send_message('Your Auron FIN CRM Enterprise payment checkout', body, inquiry.email):
             raise EnterpriseWorkflowError('The Razorpay order is ready, but the payment email could not be sent. Retry this admin action to send a fresh link.')
 
         inquiry.payment_link_email_sent_at = timezone.now()

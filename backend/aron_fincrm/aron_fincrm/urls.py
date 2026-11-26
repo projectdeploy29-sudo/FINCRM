@@ -35,7 +35,6 @@ urlpatterns = [
     path('api/v1/', include('customers.urls')),
     path('api/v1/communications/', include('communications.urls')),
     path('api/v1/subscriptions/', include('subscriptions.urls')),
-    path('api/v1/', include('applications.urls')),
     path('api/v1/finance/', include('finance.urls')),
     path('api/v1/whatsapp/', include('whatsapp.urls')),
     path('api/v1/ai-assistant/', include('ai_assistant.urls')),

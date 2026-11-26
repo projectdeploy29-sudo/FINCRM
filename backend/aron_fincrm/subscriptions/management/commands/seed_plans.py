@@ -4,7 +4,7 @@ from subscriptions.models import Plan
 
 
 class Command(BaseCommand):
-    help = "Creates missing subscription plan rows without overwriting existing catalog data."
+    help = "Creates missing subscription plan rows from the Auron FIN CRM public catalog."
 
     def handle(self, *args, **options):
         plans_data = [
@@ -13,13 +13,13 @@ class Command(BaseCommand):
                 "code": "starter",
                 "description": "For small teams getting started with CRM.",
                 "monthly_price": Decimal("1.00"),
-                "yearly_price": Decimal("2.00"),
-                "max_employees": 100,
+                "yearly_price": None,
+                "prices_confirmed": False,
+                "max_employees": 1000,
                 "max_leads": 500,
                 "features": {
                     "lead_management": True,
                     "customer_management": True,
-                    "applications": True,
                     "pipeline": True,
                     "reports": True,
                     "tasks": True,
@@ -31,14 +31,14 @@ class Command(BaseCommand):
                 "name": "Growth",
                 "code": "growth",
                 "description": "For growing teams that need more capacity.",
-                "monthly_price": Decimal("2.00"),
-                "yearly_price": Decimal("3.00"),
+                "monthly_price": Decimal("20000.00"),
+                "yearly_price": None,
+                "prices_confirmed": False,
                 "max_employees": 200,
                 "max_leads": 1000,
                 "features": {
                     "lead_management": True,
                     "customer_management": True,
-                    "applications": True,
                     "pipeline": True,
                     "reports": True,
                     "tasks": True,
@@ -51,14 +51,14 @@ class Command(BaseCommand):
                 "name": "Professional",
                 "code": "professional",
                 "description": "For professional teams that need maximum power.",
-                "monthly_price": Decimal("3.00"),
-                "yearly_price": Decimal("3.00"),
+                "monthly_price": Decimal("29999.00"),
+                "yearly_price": None,
+                "prices_confirmed": False,
                 "max_employees": 500,
                 "max_leads": 5000,
                 "features": {
                     "lead_management": True,
                     "customer_management": True,
-                    "applications": True,
                     "pipeline": True,
                     "reports": True,
                     "tasks": True,
@@ -79,7 +79,6 @@ class Command(BaseCommand):
                 "features": {
                     "lead_management": True,
                     "customer_management": True,
-                    "applications": True,
                     "pipeline": True,
                     "reports": True,
                     "tasks": True,
