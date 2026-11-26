@@ -1,0 +1,2 @@
+# Keep root-level hosting platforms on the same backend dependencies as Docker.
+-r backend/aron_fincrm/requirements.txt
