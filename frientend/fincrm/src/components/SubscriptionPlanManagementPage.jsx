@@ -36,6 +36,7 @@ export default function SubscriptionPlanManagementPage({ api }) {
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(emptyPlan)
+  const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
@@ -57,7 +58,7 @@ export default function SubscriptionPlanManagementPage({ api }) {
     return () => { active = false }
   }, [api])
 
-  function startCreate() { setEditing(null); setForm(emptyPlan); setError(''); setMessage('') }
+  function startCreate() { setEditing(null); setForm(emptyPlan); setIsCreating(true); setError(''); setMessage('') }
   function startEdit(plan) { setEditing(plan); setForm(planToForm(plan)); setError(''); setMessage('') }
   function change(field, value) { setForm((current) => ({ ...current, [field]: value })) }
 
@@ -80,7 +81,7 @@ export default function SubscriptionPlanManagementPage({ api }) {
       if (editing) await api.patch(`/subscriptions/manage/plans/${editing.id}/`, body)
       else await api.post('/subscriptions/manage/plans/', body)
       setMessage(editing ? 'Plan updated.' : 'Plan created and added to the catalog.')
-      setEditing(null); setForm(emptyPlan)
+      setEditing(null); setForm(emptyPlan); setIsCreating(false)
       await reload()
     } catch (exception) { setError(exception.message) }
     finally { setSaving(false) }
@@ -118,7 +119,7 @@ export default function SubscriptionPlanManagementPage({ api }) {
       </article>)}</div>}
     </section>
 
-    {(editing || form !== emptyPlan) && <section className="plan-editor"><div className="plan-editor-title"><div><h3>{editing ? `Edit ${editing.name}` : 'Create a plan'}</h3><p>Prices remain unavailable to customers until checkout is enabled and the prices are confirmed.</p></div><button type="button" onClick={() => { setEditing(null); setForm(emptyPlan) }}>Close</button></div>
+    {(editing || isCreating) && <section className="plan-editor"><div className="plan-editor-title"><div><h3>{editing ? `Edit ${editing.name}` : 'Create a plan'}</h3><p>Prices remain unavailable to customers until checkout is enabled and the prices are confirmed.</p></div><button type="button" onClick={() => { setEditing(null); setForm(emptyPlan); setIsCreating(false) }}>Close</button></div>
       <form onSubmit={save}>
         <div className="plan-form-grid">
           <label>Plan name<input required maxLength="100" value={form.name} onChange={(event) => change('name', event.target.value)} /></label>
