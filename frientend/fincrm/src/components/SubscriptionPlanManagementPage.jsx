@@ -5,7 +5,18 @@ import './SubscriptionPlanManagementPage.css'
 const emptyPlan = {
   name: '', code: '', description: '', currency: 'INR', monthly_price: '', yearly_price: '',
   prices_confirmed: false, max_employees: '', max_leads: '', daily_ai_tokens: '',
-  features: '{}', storage_limit_mb: '', included_services: '', additional_services: '',
+  features: JSON.stringify({
+  lead_management: true,
+  customer_management: true,
+  pipeline: true,
+  reports: true,
+  tasks: true,
+  followups: true,
+  advanced_reports: true,
+  priority_support: true,
+  custom_roles: true,
+  dedicated_support: true,
+}, null, 2), storage_limit_mb: '', included_services: '', additional_services: '',
   terms_conditions: '', is_active: true,
 }
 
