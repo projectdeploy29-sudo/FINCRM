@@ -1,5 +1,5 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
-from tasks.views import TaskViewSet, CustomerFollowUpViewSet, LeadFollowUpViewSet, followups_today, task_recipients
+from tasks.views import TaskViewSet, CustomerFollowUpViewSet, LeadFollowUpViewSet, followups_today, task_recipients, task_related_leads
 router=DefaultRouter(); router.register('tasks',TaskViewSet,basename='task'); router.register('followups/customers',CustomerFollowUpViewSet,basename='customer-followup'); router.register('followups/leads',LeadFollowUpViewSet,basename='lead-followup')
-urlpatterns=router.urls+[path('followups/today/',followups_today),path('tasks/recipients/',task_recipients)]
+urlpatterns=router.urls+[path('followups/today/',followups_today),path('tasks/recipients/',task_recipients),path('tasks/related-leads/',task_related_leads)]

@@ -129,15 +129,46 @@ def task_recipients(request):
   depts=manager.managed_departments.all() if manager else []
   employees=Employee.objects.filter(organization=org,department__in=depts,employment_status='active').select_related('user')
   managers=Manager.objects.none()
-  leads=TeamLead.objects.filter(organization=org,department__in=depts,user__isnull=False,employment_status='active').select_related('user')
+  leads=TeamLead.objects.filter(
+   Q(department__in=depts)|Q(manager=manager),
+   organization=org,user__isnull=False,employment_status='active',
+  ).select_related('user').distinct()
  else:
   profile=request.user.teamlead_profiles.first()
   teams=profile.teams.all() if profile else []
   employees=Employee.objects.filter(organization=org,team__in=teams,employment_status='active').select_related('user')
   managers=Manager.objects.none(); leads=TeamLead.objects.none()
- rows += [{'id':str(row.user_id),'name':row.user.get_full_name() or row.user.username,'role':'Employee'} for row in employees]
- rows += [{'id':str(row.user_id),'name':row.user.get_full_name() or row.user.username,'role':'Manager'} for row in managers]
- rows += [{'id':str(row.user_id),'name':row.user.get_full_name() or row.user.username,'role':'Team Lead'} for row in leads]
+ def option(row,role):
+  name=row.user.get_full_name() or row.user.username
+  return {'id':str(row.user_id),'name':name,'label':f'{name} ({role})','role':role}
+ rows += [option(row,'Employee') for row in employees]
+ rows += [option(row,'Manager') for row in managers]
+ rows += [option(row,'Team Lead') for row in leads]
+ return Response(sorted(rows,key=lambda row:(row['role'],row['name'].lower())))
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedTenant])
+def task_related_leads(request):
+ """Return only leads the current user can relate to a task."""
+ ctx=get_user_role_context(request.user,request); level=ctx['hierarchy_level']
+ org=get_user_organization(request.user,request)
+ if not org or level<30:return Response([])
+ leads=Lead.objects.filter(organization=org).select_related('assigned_to__user')
+ if level<50:
+  employee=getattr(request.user,'employee',None)
+  leads=leads.filter(assigned_to=employee) if employee else leads.none()
+ elif level<70:
+  profile=request.user.teamlead_profiles.first()
+  teams=profile.teams.all() if profile else []
+  leads=leads.filter(assigned_to__team__in=teams)
+ elif level<90:
+  manager=request.user.manager_set.first()
+  departments=manager.managed_departments.all() if manager else []
+  leads=leads.filter(assigned_to__department__in=departments)
+ rows=[]
+ for lead in leads.order_by('contact_name','lead_code'):
+  label=' · '.join(filter(None,[lead.contact_name,lead.lead_code]))
+  rows.append({'id':str(lead.id),'name':lead.contact_name,'lead_code':lead.lead_code,'label':label})
  return Response(rows)
 
 @api_view(['GET'])
